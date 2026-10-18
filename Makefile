@@ -9,7 +9,7 @@ RUN     := $(COMPOSE) run --rm --no-deps api
 EDA     := $(COMPOSE) --profile eda run --rm --no-deps notebook
 
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate test lint format seed ingest features feature-catalog train report logs build data notebook eda
+.PHONY: help up down migrate test lint format seed ingest features feature-catalog train report backtest backtest-report logs build data notebook eda
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -57,6 +57,14 @@ train: ## Walk-forward train + evaluate all models (TASK=classification|regressi
 
 report: ## Regenerate docs/experiment-report.md from the latest training runs
 	$(COMPOSE) run --rm api marketlens experiment-report
+
+FEE_BPS ?= 10
+SLIPPAGE_BPS ?= 5
+backtest: ## Backtest a model version after costs (MV=<id>, FEE_BPS=10, SLIPPAGE_BPS=5)
+	$(COMPOSE) run --rm api marketlens backtest --model-version $(MV) --fee-bps $(FEE_BPS) --slippage-bps $(SLIPPAGE_BPS)
+
+backtest-report: ## Regenerate docs/backtest-report.md from the latest backtests
+	$(COMPOSE) run --rm api marketlens backtest-report
 
 logs: ## Tail logs of all services
 	$(COMPOSE) logs -f --tail=100

@@ -23,6 +23,8 @@ dependencies = [
     "lightgbm>=4.5",
     "mlflow-skinny>=3.16,<3.17",  # client kept on the same minor as the MLflow server image
     "joblib>=1.4",
+    "pyarrow>=17",
+    "boto3>=1.35",
 ]
 
 [project.scripts]
@@ -45,7 +47,6 @@ dev = [
 ]
 # Exploration only (notebooks/, scripts/). Never installed in the api/worker images.
 eda = [
-    "pyarrow>=17",
     "matplotlib>=3.9",
     "scipy>=1.14",
     "statsmodels>=0.14",
@@ -94,7 +95,7 @@ plugins = ["pydantic.mypy"]
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["celery", "celery.*", "pandas", "pandas.*", "sklearn", "sklearn.*", "lightgbm", "lightgbm.*", "mlflow", "mlflow.*", "joblib", "joblib.*"]
+module = ["celery", "celery.*", "pandas", "pandas.*", "sklearn", "sklearn.*", "lightgbm", "lightgbm.*", "mlflow", "mlflow.*", "joblib", "joblib.*", "boto3", "boto3.*", "botocore", "botocore.*", "pyarrow", "pyarrow.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

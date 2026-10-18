@@ -40,6 +40,13 @@ class Settings(BaseSettings):
     # Commit being run, injected by the Makefile; recorded with every training run.
     git_sha: str = "unknown"
 
+    # S3-compatible object storage (SeaweedFS locally; any S3 in production).
+    s3_endpoint_url: str | None = None
+    s3_access_key: str | None = None
+    s3_secret_key: str | None = None
+    s3_region: str = "us-east-1"
+    backtest_bucket: str = "backtests"
+
     # Comma-separated in the environment: CORS_ORIGINS=http://a,http://b
     cors_origins: Annotated[list[str], NoDecode] = []
 

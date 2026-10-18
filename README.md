@@ -34,6 +34,8 @@ Other targets: `make seed` (reference assets), `make ingest` (raw data → `mark
 `make train TASK=classification|regression`, `make report`, `make lint`, `make format`, `make logs`,
 `make down`, `make help`. Features: [docs/feature-catalog.md](docs/feature-catalog.md).
 Models: [docs/experiment-report.md](docs/experiment-report.md) (walk-forward, vs baselines).
+Backtests: `make backtest MV=<model version id>`, `make backtest-report` → [docs/backtest-report.md](docs/backtest-report.md)
+(hypothetical, after costs, vs buy-and-hold; not financial advice).
 
 Data exploration (Phase 2): put a Kaggle token in `~/.kaggle/` (`kaggle.json` or `access_token`),
 then `make data` (download + SHA-256 manifest), `make notebook` (Jupyter Lab on

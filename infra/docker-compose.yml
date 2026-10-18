@@ -85,6 +85,7 @@ services:
       AWS_DEFAULT_REGION: us-east-1
       MLFLOW_S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
       MLFLOW_BUCKET: ${MLFLOW_BUCKET}
+      BUCKETS: ${MLFLOW_BUCKET},${BACKTEST_BUCKET:-backtests}
     depends_on:
       seaweedfs:
         condition: service_healthy

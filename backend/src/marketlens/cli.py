@@ -8,6 +8,9 @@
     marketlens features
     marketlens train --feature-set v1 --task classification
     marketlens experiment-report
+    marketlens model-versions
+    marketlens backtest --model-version 15 --fee-bps 10 --slippage-bps 5
+    marketlens backtest-report
 
 Commands are thin: they build dependencies and call services, exactly like routers and tasks.
 """
@@ -20,6 +23,8 @@ from typing import Annotated
 import typer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from marketlens.backtest.report import render_backtest_report
+from marketlens.backtest.service import Backtester, BacktestRequest
 from marketlens.core.config import get_settings
 from marketlens.core.logging import configure_logging
 from marketlens.db.seed import seed_assets
@@ -35,7 +40,7 @@ from marketlens.ml.report import render_report
 from marketlens.ml.splits import WalkForwardSplit
 from marketlens.ml.train import TrainConfig, Trainer
 from marketlens.models import FeatureSet, PipelineRunStatus
-from marketlens.repositories import training_repo
+from marketlens.repositories import backtest_repo, training_repo
 
 app = typer.Typer(help="MarketLens command-line tools.", no_args_is_help=True)
 
@@ -221,6 +226,85 @@ def experiment_report() -> None:
 
     content = _run_with_db(work)
     path = get_settings().reports_dir / "experiment-report.md"
+    path.write_text(content, encoding="utf-8", newline="\n")
+    typer.echo(f"wrote {path}")
+
+
+@app.command("model-versions")
+def model_versions(limit: Annotated[int, typer.Option(help="How many to show.")] = 30) -> None:
+    """List model versions (newest first), so you know which id to backtest."""
+
+    async def work(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+        async with sessionmaker() as session:
+            for mv in await backtest_repo.list_model_versions(session, limit):
+                typer.echo(
+                    f"{mv.id:>4}  {mv.name:<32} v{mv.version:<3} {mv.task:<15} {mv.stage:<10} "
+                    f"{mv.created_at:%Y-%m-%d %H:%M}"
+                )
+
+    _run_with_db(work)
+
+
+@app.command()
+def backtest(
+    model_version: Annotated[int, typer.Option(help="model_versions.id (see model-versions).")],
+    fee_bps: Annotated[float, typer.Option(help="Exchange fee per unit traded, bps.")] = 10.0,
+    slippage_bps: Annotated[float, typer.Option(help="Slippage per unit traded, bps.")] = 5.0,
+    execution: Annotated[str, typer.Option(help="next_open or next_close.")] = "next_open",
+    long_short: Annotated[bool, typer.Option(help="Allow short positions.")] = False,
+    vol_target: Annotated[
+        float | None, typer.Option(help="Annualised vol target, e.g. 0.5.")
+    ] = None,
+) -> None:
+    """Backtest a model version's out-of-sample predictions after costs (hypothetical)."""
+    if execution not in ("next_open", "next_close"):
+        raise typer.BadParameter("execution must be next_open or next_close")
+    req = BacktestRequest(
+        model_version_id=model_version,
+        fee_bps=fee_bps,
+        slippage_bps=slippage_bps,
+        execution=execution,  # type: ignore[arg-type]
+        long_short=long_short,
+        vol_target=vol_target,
+    )
+
+    async def work(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+        bt_id, m, uri = await Backtester(sessionmaker).run(req)
+        ev = m["evaluation"]
+        typer.echo(
+            f"backtest {bt_id}: {m['model']['name']} v{m['model']['version']}, "
+            f"threshold {m['threshold']['chosen']} (chosen on selection folds)"
+        )
+        typer.echo(
+            f"  evaluation {ev['strategy_net']['start'][:10]} → {ev['strategy_net']['end'][:10]}"
+        )
+        for label, key in [
+            ("strategy net", "strategy_net"),
+            ("strategy gross", "strategy_gross"),
+            ("buy & hold", "buy_and_hold"),
+            ("baseline strategy", "baseline_strategy"),
+        ]:
+            s = ev[key]
+            typer.echo(
+                f"  {label:<18} CAGR {s['cagr']:>7.1%}  Sharpe {s['sharpe']:>5.2f}  "
+                f"max DD {s['max_drawdown']:>7.1%}"
+            )
+        typer.echo(f"  equity curve: {uri}")
+        typer.echo(f"  {m['disclaimer']}")
+
+    _run_with_db(work)
+
+
+@app.command("backtest-report")
+def backtest_report() -> None:
+    """Write docs/backtest-report.md from the latest backtest of each model version."""
+
+    async def work(sessionmaker: async_sessionmaker[AsyncSession]) -> str:
+        async with sessionmaker() as session:
+            return render_backtest_report(await backtest_repo.latest_backtests(session))
+
+    content = _run_with_db(work)
+    path = get_settings().reports_dir / "backtest-report.md"
     path.write_text(content, encoding="utf-8", newline="\n")
     typer.echo(f"wrote {path}")
 

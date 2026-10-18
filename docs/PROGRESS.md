@@ -236,10 +236,54 @@ folds, logged to MLflow, with an experiment report → [`docs/experiment-report.
 - MLflow 3 refuses the local file store unless `MLFLOW_ALLOW_FILE_STORE=true` (tests only).
 - Model stages are all `candidate`; promotion logic comes later.
 
-## Next: Phase 6: Backtesting after costs
-Turn `oos_predictions` into positions (long/flat; probability thresholds; volatility targeting),
-apply fees + slippage, compare with buy-and-hold and baseline strategies, risk metrics
-(CAGR, volatility, Sharpe, max drawdown, turnover), per-era results, report. Educational only.
+## Phase 6: Backtesting ✅ (2026-10-19)
+
+**Goal:** turn OOS predictions into a hypothetical strategy and judge it after costs against
+buy-and-hold and the baseline → [`docs/backtest-report.md`](backtest-report.md).
+
+### Built
+- Migration `72b1b61acb31`: `backtests` (model_version_id, baseline_model_version_id, config,
+  metrics JSONB, equity_curve_uri, git_sha).
+- `backtest/engine.py`: vectorised engine (signal rules long/flat and long/short, `next_open` /
+  `next_close`, fee + slippage per unit traded, optional volatility targeting, trade list with
+  per-trade costs). Position = previous decision day's target (`shift(1)`).
+- `backtest/metrics.py`: CAGR, volatility (√365), Sharpe, Sortino, max drawdown + duration,
+  turnover, hit rate, trade win rate, exposure, costs; yearly returns.
+- `backtest/selection.py`: threshold grid chosen on the first half of folds by net Sharpe, prices
+  cut at the selection end. `backtest/service.py`: `Backtester` (evaluation on later folds,
+  buy-and-hold, baseline strategy, cash, timing + cost sensitivity, Sharpe SE).
+- `core/storage.py`: `ObjectStore` with `S3ObjectStore` (boto3 → SeaweedFS) and
+  `LocalObjectStore`; equity curves as Parquet at `s3://backtests/<id>.parquet`.
+- CLI `marketlens backtest | backtest-report | model-versions`; `make backtest MV=…`,
+  `make backtest-report`. ADR 0007.
+- Infra: `backtests` bucket via `storage-init` (`BUCKETS`), SeaweedFS volume flags, S3 settings,
+  pyarrow + boto3 runtime deps.
+- Tests: always-long = buy-and-hold, no same-close fills, costs ∝ turnover (and 2× costs = 2×
+  drag), flips = 2 units, hand-computed drawdown, vol targeting past-only, trades compound to
+  equity, selection independent of evaluation prices, oracle positive control for timing,
+  service integration (local store), report rendering.
+
+### Results (evaluation folds 12–23: 2020-12-06 → 2026-10-16, 10 + 5 bps)
+- Buy-and-hold: CAGR 28.0%, Sharpe 0.72 ± 0.46, max DD −76.7%. Classification baselines
+  reproduce it exactly (always long); the regression baseline (`zero_return`) stays in cash.
+- Only `lightgbm_clf` beats buy-and-hold on net Sharpe (0.92 ± 0.49; CAGR 38%, max DD −52.5%,
+  70% exposure), a difference of 0.20, far inside the noise (2 SE ≈ 1.0).
+- Costs flip conclusions: `logistic` gross Sharpe 1.18 → net 0.68 (145× turnover/year, costs
+  ≈ 127% of capital over the period); at 30 bps it is flat, at 60 bps −36% CAGR.
+- Timing: `logistic` CAGR +22% with `next_open`, −15% with `next_close`.
+- Tuning optimism: selection-period Sharpe 1.40–1.44 → evaluation 0.55–0.92 for the models.
+
+### Decisions
+- Default execution `next_open` (earliest realistic fill for a 24/7 market) with `next_close`
+  always reported as a sensitivity.
+- Threshold selection on the first half of folds; never on the reported folds.
+- "Beats buy-and-hold" in the report requires > 2 Sharpe standard errors.
+
+### Known issues / notes
+- SeaweedFS default 30 GB volumes left no room for a second bucket on the dev disk; fixed with
+  `-master.volumeSizeLimitMB=1024 -volume.max=100` (ADR 0007).
+- Shorts ignore borrow/funding costs; slippage is flat (no market impact model).
+- Stored backtests carry `git_sha a5ed507-dirty` until the phase is committed.
 
 ## Later: Scheduling and read API
 Celery Beat schedule for download + incremental ingest + feature build (worker tasks calling the

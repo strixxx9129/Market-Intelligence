@@ -9,8 +9,11 @@ x-backend: &backend
     target: dev
   image: marketlens-backend:dev
   env_file: ../.env
+  environment:
+    RAW_DATA_DIR: /data/raw
   volumes:
     - ../backend:/app
+    - ../data:/data:ro  # raw inputs from `make data`; the pipeline only reads them
   depends_on:
     postgres:
       condition: service_healthy

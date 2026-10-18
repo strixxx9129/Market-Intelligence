@@ -20,6 +20,7 @@ class PipelineRunStatus(enum.StrEnum):
     RUNNING = "running"
     SUCCESS = "success"
     FAILED = "failed"
+    SKIPPED = "skipped"  # nothing to do, e.g. this exact raw file was already ingested
 
 
 class PipelineRun(Base):

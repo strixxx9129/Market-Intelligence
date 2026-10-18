@@ -29,7 +29,8 @@ Then open:
 | MLflow | http://localhost:5000 |
 | S3 API (SeaweedFS) | http://localhost:8333 |
 
-Other targets: `make lint`, `make format`, `make seed`, `make logs`, `make down`, `make help`.
+Other targets: `make seed` (reference assets), `make ingest` (raw data → `market_prices`;
+`MODE=full|incremental`, `FORCE=1`), `make lint`, `make format`, `make logs`, `make down`, `make help`.
 
 Data exploration (Phase 2): put a Kaggle token in `~/.kaggle/` (`kaggle.json` or `access_token`),
 then `make data` (download + SHA-256 manifest), `make notebook` (Jupyter Lab on

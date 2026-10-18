@@ -89,8 +89,52 @@
   numbers in the report. The report records the hash it was produced from.
 - Derived figures/statistics are CC BY-SA 4.0 (dataset licence), attributed on every figure.
 
-## Next: Phase 3: Bitcoin data ingestion
-Connector plugin registry, first BTC daily OHLCV connector (licence-checked source), raw file
-hashing → `pipeline_runs.input_hash`, Pandera validation reusing the Phase 2 quality checks
-(OHLC consistency, duplicates, traded-minute coverage), UPSERT into `market_prices`,
-Celery Beat schedule, read-only prices endpoint.
+## Phase 3: Ingestion pipeline ✅ (2026-10-18)
+
+**Goal:** raw CSV → validated, deduplicated daily candles in PostgreSQL, safe to re-run.
+
+### Built
+- Migration `e83bde7e29b5`: `raw_ingestions` (UNIQUE source+file_hash), `data_quality_issues`
+  (UNIQUE asset_id+interval+ts+check_name, NULLS NOT DISTINCT; severity enum; JSONB details),
+  `skipped` value for `pipeline_run_status` (downgrade recreates the enum).
+- `ingestion/connectors/base.py`: `BaseConnector` (name, supported_intervals, supported_assets,
+  `fetch()`, optional `fingerprint()`), registry with `@register_connector` + entry-point group
+  `marketlens.connectors`.
+- `ingestion/connectors/kaggle_btc.py`: chunked string-typed CSV read, minute-level checks
+  (invalid timestamp, duplicate, missing/garbled value, non-positive price, negative volume,
+  OHLC, malformed line), streaming per-day partial aggregation, incomplete-last-day withholding.
+- `ingestion/validation.py`: Pandera schema (errors → quarantine) + warnings (zero volume,
+  low coverage < 60 traded minutes, |return| > 50%, missing days); row-count invariant.
+- `repositories/price_repo.py` (chunked UPSERT, 5,000 rows, `IS DISTINCT FROM` guard,
+  float → Decimal(8)), `repositories/ingestion_repo.py` (runs, ledger, issues).
+- `ingestion/pipeline.py`: `IngestionPipeline` service (run row, hash skip, full/incremental,
+  atomic load, failure recording). `cli.py` (typer): `marketlens ingest | seed-assets |
+  connectors`. `make ingest` (MODE=full|incremental, FORCE=1), `make seed` uses the CLI.
+- Compose: backend services mount `../data:/data:ro`, `RAW_DATA_DIR=/data/raw`.
+- Fixture generator + `tests/fixtures/kaggle_btc_sample.csv` (3 days + partial day, 7 kinds of
+  broken rows, zero-volume fills, an extreme day). Tests: 47 total (32 new).
+- ADR 0004; CONTRIBUTING connector guide.
+
+### Real-data result (`make ingest MODE=full`, ~1.5 min)
+7,781,879 raw rows → 5,404 daily candles, 0 quarantined, 201 warnings (197 low_coverage
+2012–2015, 3 zero_volume 2015-01-06..08, 1 incomplete_period). Matches the Phase 2 EDA exactly.
+Re-run → skipped by hash; `--force` re-run → 0 rows changed.
+
+### Decisions
+- ETL (aggregate + validate in Python, load daily rows); raw file + hash is the replay source.
+- Quarantine, never delete; errors not loaded, warnings loaded and flagged.
+- The incomplete last day is withheld and loaded by a later incremental run.
+- `minutes_traded` is used for validation but not stored in `market_prices` (no schema change);
+  low coverage is visible via `data_quality_issues`.
+- New runtime deps: pandas, numpy, pandera (stack), typer (requested). mypy treats pandas as
+  untyped (`pandas-stubs` would add stricter checking; not in the stack, not added).
+
+### Known issues / notes
+- pandas silently drops extra CSV fields when `usecols` is used; the connector deliberately
+  reads all columns so malformed lines are reported (caught by the fixture tests).
+- Changing validation rules requires `make ingest MODE=full FORCE=1` to re-evaluate history.
+
+## Next: Phase 4: Scheduling and read API
+Celery Beat schedule for download + incremental ingest (worker task calling the same
+`IngestionPipeline`), read-only `/api/v1/assets` and `/api/v1/prices` endpoints (from
+PostgreSQL only), data-quality summary endpoint.

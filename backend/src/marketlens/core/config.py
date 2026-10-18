@@ -5,6 +5,7 @@ Never hard-code URLs or secrets here: add a field, then set it in `.env` / the d
 """
 
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import field_validator
@@ -28,6 +29,9 @@ class Settings(BaseSettings):
     db_max_overflow: int = 10
 
     redis_url: str = "redis://localhost:6379/0"
+
+    # Where raw input files live (read-only for the pipeline). Compose mounts ../data at /data.
+    raw_data_dir: Path = Path("data/raw")
 
     # Comma-separated in the environment: CORS_ORIGINS=http://a,http://b
     cors_origins: Annotated[list[str], NoDecode] = []

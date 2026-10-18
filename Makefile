@@ -6,7 +6,7 @@ RUN     := $(COMPOSE) run --rm --no-deps api
 EDA     := $(COMPOSE) --profile eda run --rm --no-deps notebook
 
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate test lint format seed logs build data notebook eda
+.PHONY: help up down migrate test lint format seed ingest logs build data notebook eda
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -34,8 +34,12 @@ format: ## Auto-fix lint issues and format code
 	$(RUN) sh -c "ruff check --fix . && ruff format ."
 	$(EDA) sh -c "ruff check --fix scripts notebooks && ruff format scripts notebooks"
 
-seed: ## Insert reference data (idempotent)
-	$(COMPOSE) run --rm api python -m marketlens.db.seed
+seed: ## Insert reference assets (idempotent)
+	$(COMPOSE) run --rm api marketlens seed-assets
+
+MODE ?= incremental
+ingest: ## Ingest data/raw into market_prices (MODE=full|incremental, FORCE=1 to re-process)
+	$(COMPOSE) run --rm api marketlens ingest --source kaggle_btc --mode $(MODE) $(if $(FORCE),--force,)
 
 logs: ## Tail logs of all services
 	$(COMPOSE) logs -f --tail=100

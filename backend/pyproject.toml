@@ -26,6 +26,18 @@ dev = [
     "mypy>=1.11",
     "pre-commit>=3.8",
 ]
+# Exploration only (notebooks/, scripts/). Never installed in the api/worker images.
+eda = [
+    "pandas>=2.2",
+    "numpy>=2.0",
+    "pyarrow>=17",
+    "matplotlib>=3.9",
+    "scipy>=1.14",
+    "statsmodels>=0.14",
+    "kaggle>=1.6",
+    "jupyterlab>=4.2",
+    "jupytext>=1.16",
+]
 
 [build-system]
 requires = ["hatchling"]

@@ -1,0 +1,11 @@
+# Ruff config for scripts/ and notebooks/ (backend/ uses backend/pyproject.toml).
+line-length = 100
+target-version = "py312"
+
+[lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "DTZ", "RUF"]
+
+[lint.per-file-ignores]
+# Notebook cells import where they are first needed and end with bare expressions to display.
+# Greek letters (σ, ν) in plot labels and markdown are intentional maths notation.
+"notebooks/*.py" = ["E402", "B018", "RUF001", "RUF002", "RUF003"]

@@ -34,3 +34,13 @@ COPY . .
 RUN uv sync --frozen
 EXPOSE 8000
 CMD ["uvicorn", "marketlens.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# ---------------------------------------------------------------- eda
+# Jupyter Lab + data-science libs for notebooks/ and scripts/ (Phase 2 exploration).
+# The repo root is bind-mounted at /workspace by the `notebook` compose service.
+FROM dev AS eda
+RUN uv sync --frozen --group eda
+WORKDIR /workspace
+EXPOSE 8888
+CMD ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root", \
+     "--IdentityProvider.token=", "--ServerApp.root_dir=/workspace"]

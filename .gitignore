@@ -30,3 +30,6 @@ Thumbs.db
 
 # Notebooks checkpoints
 .ipynb_checkpoints/
+
+# Notebooks: the percent-format .py file is the source of truth; executed .ipynb are local.
+notebooks/*.ipynb

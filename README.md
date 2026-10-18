@@ -31,6 +31,11 @@ Then open:
 
 Other targets: `make lint`, `make format`, `make seed`, `make logs`, `make down`, `make help`.
 
+Data exploration (Phase 2): put a Kaggle token in `~/.kaggle/` (`kaggle.json` or `access_token`),
+then `make data` (download + SHA-256 manifest), `make notebook` (Jupyter Lab on
+http://localhost:8888) or `make eda` (run `notebooks/01_eda.py` end-to-end). Findings:
+[docs/eda-report.md](docs/eda-report.md).
+
 ## Architecture (Phase 1)
 
 ```

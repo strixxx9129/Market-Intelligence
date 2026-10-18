@@ -134,6 +134,22 @@ services:
     <<: *backend
     command: ["celery", "-A", "marketlens.tasks.celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
 
+  # Jupyter Lab for exploration. Only starts with `make notebook` (profile "eda").
+  # No token: the port is published on 127.0.0.1 only, never on the network.
+  notebook:
+    profiles: ["eda"]
+    build:
+      context: ../backend
+      target: eda
+    image: marketlens-backend:eda
+    environment:
+      MPLBACKEND: Agg
+    volumes:
+      - ..:/workspace
+      - ~/.kaggle:/root/.kaggle:ro  # kaggle.json or access_token
+    ports:
+      - "127.0.0.1:${NOTEBOOK_PORT:-8888}:8888"
+
 volumes:
   postgres_data:
   redis_data:

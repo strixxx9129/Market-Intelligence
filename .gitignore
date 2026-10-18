@@ -1,0 +1,32 @@
+# Secrets / local config
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Data & ML artefacts (never commit raw data or models)
+data/
+mlruns/
+*.parquet
+
+# Node / frontend
+node_modules/
+dist/
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Notebooks checkpoints
+.ipynb_checkpoints/

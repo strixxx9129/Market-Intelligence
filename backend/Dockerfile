@@ -3,6 +3,10 @@
 #   target "dev":  + pytest/ruff/mypy, used by docker compose and `make test` / `make lint`
 FROM python:3.12-slim AS base
 
+# libgomp1: OpenMP runtime required by LightGBM.
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=ghcr.io/astral-sh/uv:0.8.0 /uv /uvx /usr/local/bin/
 
 ENV PYTHONUNBUFFERED=1 \

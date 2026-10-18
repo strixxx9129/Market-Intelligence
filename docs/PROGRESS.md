@@ -179,11 +179,67 @@ honest rules 48.0–51.3%, centred 5-day SMA 74.1%, `shift(-1)` feature 100%.
 - Inside one DB transaction `now()` is constant (seen in tests); ordering runs by `started_at`
   is only meaningful across transactions.
 
-## Next: Phase 5: Model training with walk-forward validation
-Load features (v1, 2013+) + targets, walk-forward splits with a gap, sklearn Pipelines (scalers
-fitted per fold), naive baselines (always-up, zero-return, last-sign), logistic regression and
-LightGBM, metrics per fold/regime, MLflow + training_runs logging (dataset hash, feature-set
-version + code hash, git SHA, params, seed).
+## Phase 5: Models and honest evaluation ✅ (2026-10-19)
+
+**Goal:** compare baselines, linear/logistic, Random Forest and LightGBM on identical walk-forward
+folds, logged to MLflow, with an experiment report → [`docs/experiment-report.md`](experiment-report.md).
+
+### Built
+- Migration `988db4803c01`: `training_runs`, `model_versions` (immutable: a trigger rejects any
+  UPDATE except `stage`), `oos_predictions` (per-fold out-of-sample predictions for the backtest).
+- `ml/splits.py`: `WalkForwardSplit` (expanding/rolling, embargo gap, sklearn splitter protocol),
+  `inner_validation_split`.
+- `ml/models/`: `BaseModel` + `@register_model` registry; baselines (zero return, historical
+  mean, always-up, historical up-rate), Ridge, L2 Logistic (scaler + one-hot inside the
+  pipeline), Random Forests (depth 4, leaf ≥ 50), LightGBM (7 leaves, depth 3) with an
+  early-stopping wrapper that uses the most recent 15% of the training fold.
+- `ml/evaluate.py`: MAE/RMSE/directional accuracy; log loss/Brier/ROC-AUC/accuracy; quantile
+  calibration table; per-fold mean ± std; per-metric comparison with the best baseline (fold
+  wins, "beats" = > 2 SE and majority of folds); per-era metrics; permutation importance with
+  leak flags (dominant > 50% AND material ≥ 1% of the score).
+- `ml/dataset.py` (features + targets, dataset hash), `ml/train.py` (`Trainer`), `ml/report.py`,
+  `repositories/training_repo.py`. CLI `marketlens train`, `marketlens experiment-report`;
+  `make train TASK=…`, `make report`.
+- `notebooks/02_random_vs_walkforward.py` + `docs/figures/random_vs_walkforward.png`.
+- Plumbing: `mlflow-skinny` (pinned to the server's 3.16), scikit-learn, LightGBM, joblib;
+  `libgomp1` in the image; `docs/` mounted into backend containers; `GIT_SHA` (with `-dirty`)
+  passed by the Makefile; `MLFLOW_TRACKING_URI`, `REPORTS_DIR`.
+- Tests: 467 total (355 new, most of them split property cases): splits, models, metrics,
+  calibration, importance/leak flags, per-fold scaler fitting, LightGBM early-stopping slice,
+  random-split demo, end-to-end training with MLflow (file store), immutability trigger,
+  versioning, report rendering. ADR 0006.
+
+### Results (BTC-USD, v1, 2013-01-01 → 2026-10-16, 5,037 days, 24 folds)
+- **Classification: no model beats the baseline.** Log loss: random forest 0.69251, historical
+  up-rate 0.69272, logistic 0.69307, LightGBM 0.69499 (best model wins 10/24 folds; within
+  noise). Always-up: accuracy ≈ up-rate but log loss 16.5 (certainty punished).
+- **Regression: baselines win outright.** MAE: zero return 0.02293 < historical mean 0.02295 <
+  LightGBM 0.02303 < RF 0.02306 < Ridge 0.02314.
+- Calibration: the RF's extreme bins are over-confident (predicts 0.62, observes 0.55).
+- No possible leak flagged; dominant features (`log_return_1d`, `close_to_sma_20`) hold most of
+  effects worth ~0.2% of the score.
+- Random vs walk-forward (real data, RF): 1-day target 52.2% vs 52.5% (no inflation, no skill);
+  7-day overlapping target 58.6% shuffled vs 53.4% walk-forward (always-up 54.4%).
+- Re-running with the same seed reproduced every metric exactly.
+
+### Decisions
+- Primary metrics: log loss (classification), MAE (regression); accuracy reported, never decisive.
+- No hyperparameter tuning on reported folds; fixed conservative defaults.
+- Gap 5 days (≥ 1-day label horizon + margin); expanding window default.
+- The final model per version is fitted on all data; its quality estimate is the walk-forward OOS.
+- Importance leak rule needs materiality: dominance alone fires on noise when models have no
+  skill (seen on the first real run, fixed and tested).
+
+### Known issues / notes
+- A full training run with permutation importance takes ~6 min per task on the dev VM.
+- JSONB doesn't preserve object key order; consumers of `metrics` must sort explicitly.
+- MLflow 3 refuses the local file store unless `MLFLOW_ALLOW_FILE_STORE=true` (tests only).
+- Model stages are all `candidate`; promotion logic comes later.
+
+## Next: Phase 6: Backtesting after costs
+Turn `oos_predictions` into positions (long/flat; probability thresholds; volatility targeting),
+apply fees + slippage, compare with buy-and-hold and baseline strategies, risk metrics
+(CAGR, volatility, Sharpe, max drawdown, turnover), per-era results, report. Educational only.
 
 ## Later: Scheduling and read API
 Celery Beat schedule for download + incremental ingest + feature build (worker tasks calling the

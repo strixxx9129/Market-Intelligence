@@ -6,6 +6,8 @@
     marketlens connectors
     marketlens build-features --feature-set v1
     marketlens features
+    marketlens train --feature-set v1 --task classification
+    marketlens experiment-report
 
 Commands are thin: they build dependencies and call services, exactly like routers and tasks.
 """
@@ -27,7 +29,13 @@ from marketlens.features.builder import FeatureBuilder
 from marketlens.features.sets import FEATURE_SETS
 from marketlens.ingestion.connectors.base import available_connectors, get_connector
 from marketlens.ingestion.pipeline import IngestionPipeline, IngestMode
-from marketlens.models import PipelineRunStatus
+from marketlens.ml.evaluate import METRIC_DIRECTION
+from marketlens.ml.models.base import TASKS
+from marketlens.ml.report import render_report
+from marketlens.ml.splits import WalkForwardSplit
+from marketlens.ml.train import TrainConfig, Trainer
+from marketlens.models import FeatureSet, PipelineRunStatus
+from marketlens.repositories import training_repo
 
 app = typer.Typer(help="MarketLens command-line tools.", no_args_is_help=True)
 
@@ -134,6 +142,87 @@ def list_features() -> None:
         typer.echo(f"{name:<24} {spec.family:<11} lookback={spec.lookback:<3} {spec.description}")
     for version, names in FEATURE_SETS.items():
         typer.echo(f"set {version}: {len(names)} features")
+
+
+@app.command()
+def train(
+    feature_set: Annotated[str, typer.Option(help="Feature set version.")] = "v1",
+    task: Annotated[str, typer.Option(help="classification or regression.")] = "classification",
+    asset: Annotated[str, typer.Option(help="Asset symbol.")] = "BTC-USD",
+    start: Annotated[str, typer.Option(help="First day of the modelling sample.")] = "2013-01-01",
+    initial_train: Annotated[int, typer.Option(help="Rows in the first training window.")] = 730,
+    test_days: Annotated[int, typer.Option(help="Rows per test fold.")] = 180,
+    gap: Annotated[int, typer.Option(help="Embargo rows between train and test.")] = 5,
+    window: Annotated[str, typer.Option(help="expanding or rolling.")] = "expanding",
+    seed: Annotated[int, typer.Option(help="Random seed.")] = 42,
+    models: Annotated[str | None, typer.Option(help="Comma-separated subset of models.")] = None,
+    importance: Annotated[bool, typer.Option(help="Permutation importance on test folds.")] = True,
+) -> None:
+    """Train every model of a task on identical walk-forward folds; log to MLflow and the DB."""
+    if task not in TASKS:
+        raise typer.BadParameter(f"task must be one of {TASKS}")
+    cfg = TrainConfig(
+        feature_set=feature_set,
+        task=task,
+        asset=asset,
+        start=start,
+        split=WalkForwardSplit(
+            initial_train=initial_train,
+            test_size=test_days,
+            gap=gap,
+            window=window,  # type: ignore[arg-type]
+        ),
+        seed=seed,
+        models=models.split(",") if models else None,
+        importance=importance,
+    )
+
+    async def work(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+        r = await Trainer(sessionmaker).train(cfg)
+        primary = r.primary_metric
+        better = "lower" if METRIC_DIRECTION[primary] == "min" else "higher"
+        typer.echo(
+            f"training run {r.run_id}: {r.n_rows:,} rows, {r.n_folds} folds "
+            f"(MLflow run {r.mlflow_run_id})"
+        )
+        typer.echo(f"  {primary} ({better} is better), mean ± std over folds:")
+        for name in r.metrics["leaderboard"]:
+            e = r.metrics["models"][name]
+            s = e["summary"][primary]
+            cmp = e["vs_best_baseline"].get(primary)
+            extra = (
+                f"  wins {cmp['wins']}/{cmp['folds']} vs {cmp['baseline']}"
+                if cmp
+                else "  (baseline)"
+            )
+            typer.echo(f"    {name:<20} {s['mean']:.5f} ± {s['std']:.5f}{extra}")
+        v = r.metrics["verdict"]
+        typer.echo(
+            f"  verdict: best model {v['best_model']}, beats baseline: {v['beats_baseline']}"
+        )
+
+    _run_with_db(work)
+
+
+@app.command("experiment-report")
+def experiment_report() -> None:
+    """Write docs/experiment-report.md from the latest successful run of each task."""
+
+    async def work(sessionmaker: async_sessionmaker[AsyncSession]) -> str:
+        runs = []
+        async with sessionmaker() as session:
+            for task in ("classification", "regression"):
+                run = await training_repo.latest_successful_run(session, task)
+                if run is not None:
+                    fs = await session.get(FeatureSet, run.feature_set_id)
+                    assert fs is not None
+                    runs.append((run, fs))
+        return render_report(runs)
+
+    content = _run_with_db(work)
+    path = get_settings().reports_dir / "experiment-report.md"
+    path.write_text(content, encoding="utf-8", newline="\n")
+    typer.echo(f"wrote {path}")
 
 
 if __name__ == "__main__":

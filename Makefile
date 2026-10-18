@@ -1,12 +1,15 @@
 # All targets run inside containers, so the only host requirements are Docker and make.
 # Windows: `winget install ezwinports.make` (or run from Git Bash / WSL).
 
+# Commit being run, recorded with every training run (reproducibility). "-dirty" = uncommitted changes.
+export GIT_SHA := $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)$(shell git diff --quiet HEAD 2>/dev/null || echo -dirty)
+
 COMPOSE := docker compose -f infra/docker-compose.yml --env-file .env
 RUN     := $(COMPOSE) run --rm --no-deps api
 EDA     := $(COMPOSE) --profile eda run --rm --no-deps notebook
 
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate test lint format seed ingest features feature-catalog logs build data notebook eda
+.PHONY: help up down migrate test lint format seed ingest features feature-catalog train report logs build data notebook eda
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -47,6 +50,13 @@ features: ## Build a feature set from market_prices (FEATURE_SET=v1)
 
 feature-catalog: ## Regenerate docs/feature-catalog.md from the feature registry
 	$(EDA) python scripts/gen_feature_catalog.py
+
+TASK ?= classification
+train: ## Walk-forward train + evaluate all models (TASK=classification|regression), log to MLflow
+	$(COMPOSE) run --rm api marketlens train --feature-set $(FEATURE_SET) --task $(TASK)
+
+report: ## Regenerate docs/experiment-report.md from the latest training runs
+	$(COMPOSE) run --rm api marketlens experiment-report
 
 logs: ## Tail logs of all services
 	$(COMPOSE) logs -f --tail=100

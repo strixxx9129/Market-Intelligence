@@ -11,9 +11,15 @@ x-backend: &backend
   env_file: ../.env
   environment:
     RAW_DATA_DIR: /data/raw
+    REPORTS_DIR: /docs
+    MLFLOW_TRACKING_URI: http://mlflow:5000
+    # Passed by the Makefile (`git rev-parse` on the host); .git is not visible in containers.
+    GIT_SHA: ${GIT_SHA:-unknown}
+    GIT_PYTHON_REFRESH: quiet  # MLflow probes for a git binary; we pass GIT_SHA instead
   volumes:
     - ../backend:/app
     - ../data:/data:ro  # raw inputs from `make data`; the pipeline only reads them
+    - ../docs:/docs  # generated reports (experiment-report.md)
   depends_on:
     postgres:
       condition: service_healthy

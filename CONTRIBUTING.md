@@ -78,6 +78,36 @@ Rules (all enforced by tests, so you'll know immediately):
 - To use it in a model, add a **new** set version in `features/sets.py` (never edit an existing
   one), then run `make feature-catalog` and commit the regenerated catalog.
 
+## Adding a model
+
+Models live in `backend/src/marketlens/ml/models/`. A model is a recipe for an **unfitted**
+sklearn Pipeline; training, walk-forward evaluation, baseline comparison, MLflow logging and
+versioning are shared. See [ADR 0006](docs/adr/0006-model-evaluation.md).
+
+```python
+from marketlens.ml.models.base import BaseModel, linear_preprocessor, register_model
+
+@register_model
+class ElasticNetLogistic(BaseModel):
+    name = "elasticnet_logistic"
+    task = "classification"
+    family = "linear"
+    default_params: ClassVar[dict[str, Any]] = {"C": 0.1, "l1_ratio": 0.5, "max_iter": 2000}
+
+    def build_pipeline(self, params, *, seed, categorical=()):
+        return Pipeline([
+            ("prep", linear_preprocessor(categorical)),   # fitted per training fold
+            ("model", LogisticRegression(penalty="elasticnet", solver="saga",
+                                         random_state=seed, **params)),
+        ])
+```
+
+- Put anything that learns from data (scalers, encoders, imputers) **inside** the pipeline.
+- Don't tune hyperparameters against the reported folds; if you need tuning, nest it inside
+  the training fold.
+- Your model is judged against the baselines on the same folds; "no improvement" is a fine
+  result to report.
+
 ## Optional: git hooks
 
 ```bash

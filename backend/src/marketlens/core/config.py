@@ -32,6 +32,13 @@ class Settings(BaseSettings):
 
     # Where raw input files live (read-only for the pipeline). Compose mounts ../data at /data.
     raw_data_dir: Path = Path("data/raw")
+    # Where generated reports are written (compose mounts ../docs at /docs).
+    reports_dir: Path = Path("../docs")
+
+    # MLflow tracking server; None = MLflow default (./mlruns). Compose sets http://mlflow:5000.
+    mlflow_tracking_uri: str | None = None
+    # Commit being run, injected by the Makefile; recorded with every training run.
+    git_sha: str = "unknown"
 
     # Comma-separated in the environment: CORS_ORIGINS=http://a,http://b
     cors_origins: Annotated[list[str], NoDecode] = []

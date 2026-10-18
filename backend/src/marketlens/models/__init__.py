@@ -7,6 +7,7 @@ from marketlens.models.feature_set import FeatureSet
 from marketlens.models.market_price import MarketPrice
 from marketlens.models.pipeline_run import PipelineRun, PipelineRunStatus
 from marketlens.models.raw_ingestion import RawIngestion
+from marketlens.models.training import ModelVersion, OosPrediction, TrainingRun
 
 __all__ = [
     "Asset",
@@ -15,7 +16,10 @@ __all__ = [
     "FeatureSet",
     "IssueSeverity",
     "MarketPrice",
+    "ModelVersion",
+    "OosPrediction",
     "PipelineRun",
     "PipelineRunStatus",
     "RawIngestion",
+    "TrainingRun",
 ]

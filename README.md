@@ -30,7 +30,8 @@ Then open:
 | S3 API (SeaweedFS) | http://localhost:8333 |
 
 Other targets: `make seed` (reference assets), `make ingest` (raw data → `market_prices`;
-`MODE=full|incremental`, `FORCE=1`), `make lint`, `make format`, `make logs`, `make down`, `make help`.
+`MODE=full|incremental`, `FORCE=1`), `make features` (build feature set `v1`), `make feature-catalog`,
+`make lint`, `make format`, `make logs`, `make down`, `make help`. Features: [docs/feature-catalog.md](docs/feature-catalog.md).
 
 Data exploration (Phase 2): put a Kaggle token in `~/.kaggle/` (`kaggle.json` or `access_token`),
 then `make data` (download + SHA-256 manifest), `make notebook` (Jupyter Lab on

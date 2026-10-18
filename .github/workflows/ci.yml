@@ -66,6 +66,9 @@ jobs:
       - name: Ruff on scripts/ and notebooks/ (root ruff.toml)
         run: uv run ruff check ../scripts ../notebooks && uv run ruff format --check ../scripts ../notebooks
 
+      - name: Feature catalog is up to date
+        run: uv run python ../scripts/gen_feature_catalog.py --check
+
       - name: Mypy (strict)
         run: uv run mypy
 

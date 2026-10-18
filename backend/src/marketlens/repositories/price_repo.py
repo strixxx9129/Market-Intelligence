@@ -91,6 +91,31 @@ async def last_candle(
     return (row.ts, row.close) if row else None
 
 
+async def load_candles(session: AsyncSession, asset_id: int, interval: str) -> pd.DataFrame:
+    """Daily candles as floats, indexed by UTC ts, oldest first (the feature-code contract).
+
+    NUMERIC → float happens here, at the boundary to numerical code: exact decimals matter for
+    storage, while features and models work in float64.
+    """
+    rows = (
+        await session.execute(
+            select(
+                MarketPrice.ts,
+                MarketPrice.open,
+                MarketPrice.high,
+                MarketPrice.low,
+                MarketPrice.close,
+                MarketPrice.volume,
+            )
+            .where(MarketPrice.asset_id == asset_id, MarketPrice.interval == interval)
+            .order_by(MarketPrice.ts)
+        )
+    ).all()
+    frame = pd.DataFrame([r[1:] for r in rows], columns=list(_VALUE_COLUMNS), dtype="float64")
+    frame.index = pd.DatetimeIndex(pd.to_datetime([r.ts for r in rows], utc=True), name="ts")
+    return frame
+
+
 async def count_prices(session: AsyncSession, asset_id: int, interval: str) -> int:
     count = await session.scalar(
         select(func.count())

@@ -134,7 +134,57 @@ Re-run → skipped by hash; `--force` re-run → 0 rows changed.
   reads all columns so malformed lines are reported (caught by the fixture tests).
 - Changing validation rules requires `make ingest MODE=full FORCE=1` to re-evaluate history.
 
-## Next: Phase 4: Scheduling and read API
-Celery Beat schedule for download + incremental ingest (worker task calling the same
-`IngestionPipeline`), read-only `/api/v1/assets` and `/api/v1/prices` endpoints (from
-PostgreSQL only), data-quality summary endpoint.
+## Phase 4: Feature engineering ✅ (2026-10-19)
+
+**Goal:** a versioned, leakage-free feature table built from a registry contributors can extend.
+
+### Built
+- Migration `987de3e24767`: `feature_sets` (version UNIQUE, definition JSONB, code_hash) and
+  `features` (asset_id, ts, feature_set_id, values JSONB, UNIQUE asset_id+ts+feature_set_id).
+- `features/registry.py`: `@register_feature(name, description, lookback)`, `FEATURES`,
+  `FeatureSpec`, candle-contract check.
+- 12 features in 6 families: returns (1/7/30d log returns), volatility (7d, 30d, ratio),
+  momentum (close/SMA20−1, close/SMA50−1), range ((H−L)/C), volume (30d z-score of log1p
+  volume vs previous 30 days, 1-day log1p change), calendar (day of week).
+- `features/sets.py` (`v1`), `features/targets.py` (next-day log return, up label; never
+  imported by features, never stored).
+- `features/builder.py`: `FeatureBuilder` (compute → drop 49 warm-up rows → non-finite check →
+  code-hash immutability check → UPSERT → pipeline_runs). `repositories/feature_repo.py`,
+  `price_repo.load_candles()`.
+- CLI `marketlens build-features --feature-set v1`, `marketlens features`; `make features`,
+  `make feature-catalog`.
+- `scripts/gen_feature_catalog.py` → `docs/feature-catalog.md`; CI `--check` step.
+- Tests (112 total, 65 new): truncation test parametrised over all features with 3 leaky
+  negative controls, static forward-looking-code guard, lookback honesty, hand-calculated
+  values, targets, registry, builder integration (idempotent rebuild, +1 candle → +1 row,
+  changed code refused, no targets stored).
+- ADR 0005; CONTRIBUTING "Adding a feature".
+
+### Real-data result
+5,404 candles → 5,355 feature rows (2012-02-19 → 2026-10-17), code hash `92c21d11b1a2`;
+rebuild → 0 rows changed. Leakage demo (naive next-day direction, 2013+): always-up 52.3%,
+honest rules 48.0–51.3%, centred 5-day SMA 74.1%, `shift(-1)` feature 100%.
+
+### Decisions
+- Feature at row t uses rows ≤ t (close of day t included); target = t → t+1.
+- Warm-up rows dropped, never filled; leftover NaN/inf fails the build.
+- Version immutability via a hash of the set definition + whole feature-module source.
+- Volume features use log1p(volume) (finite on the 2015 zero-volume days).
+- Features stored from 2012-02-19; the 2013+ sample filter is applied at training time.
+- No new dependencies.
+
+### Known issues / notes
+- Any edit to a feature module (even formatting) changes v1's code hash: the builder will refuse
+  to rebuild v1 and CI flags the stale catalog. That's by design: add v2 or revert.
+- Inside one DB transaction `now()` is constant (seen in tests); ordering runs by `started_at`
+  is only meaningful across transactions.
+
+## Next: Phase 5: Model training with walk-forward validation
+Load features (v1, 2013+) + targets, walk-forward splits with a gap, sklearn Pipelines (scalers
+fitted per fold), naive baselines (always-up, zero-return, last-sign), logistic regression and
+LightGBM, metrics per fold/regime, MLflow + training_runs logging (dataset hash, feature-set
+version + code hash, git SHA, params, seed).
+
+## Later: Scheduling and read API
+Celery Beat schedule for download + incremental ingest + feature build (worker tasks calling the
+same services), read-only `/api/v1/assets`, `/api/v1/prices`, data-quality summary endpoints.

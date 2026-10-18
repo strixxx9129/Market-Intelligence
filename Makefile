@@ -6,7 +6,7 @@ RUN     := $(COMPOSE) run --rm --no-deps api
 EDA     := $(COMPOSE) --profile eda run --rm --no-deps notebook
 
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate test lint format seed ingest logs build data notebook eda
+.PHONY: help up down migrate test lint format seed ingest features feature-catalog logs build data notebook eda
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -40,6 +40,13 @@ seed: ## Insert reference assets (idempotent)
 MODE ?= incremental
 ingest: ## Ingest data/raw into market_prices (MODE=full|incremental, FORCE=1 to re-process)
 	$(COMPOSE) run --rm api marketlens ingest --source kaggle_btc --mode $(MODE) $(if $(FORCE),--force,)
+
+FEATURE_SET ?= v1
+features: ## Build a feature set from market_prices (FEATURE_SET=v1)
+	$(COMPOSE) run --rm api marketlens build-features --feature-set $(FEATURE_SET)
+
+feature-catalog: ## Regenerate docs/feature-catalog.md from the feature registry
+	$(EDA) python scripts/gen_feature_catalog.py
 
 logs: ## Tail logs of all services
 	$(COMPOSE) logs -f --tail=100

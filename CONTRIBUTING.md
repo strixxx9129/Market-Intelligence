@@ -57,6 +57,27 @@ class MyExchangeConnector(BaseConnector):
 - Add a small fixture with deliberately broken rows and tests like
   `tests/unit/test_connectors.py`. Check the source's **licence** first (CLAUDE.md rule 7).
 
+## Adding a feature
+
+Features live in `backend/src/marketlens/features/` (one module per family). See the generated
+[feature catalog](docs/feature-catalog.md) and [ADR 0005](docs/adr/0005-feature-store.md).
+
+```python
+from marketlens.features.registry import register_feature
+
+@register_feature("close_to_sma_100", "close / SMA(close, 100 days incl. today) - 1", lookback=99)
+def close_to_sma_100(c: pd.DataFrame) -> pd.Series:
+    return c["close"] / c["close"].rolling(100).mean() - 1
+```
+
+Rules (all enforced by tests, so you'll know immediately):
+- Use rows up to and including day *t* only. No `shift(-k)`, no `center=True`, no statistics
+  over the whole series (global mean/std, min-max), no back-filling.
+- `lookback` = earlier rows needed; the value must be NaN before it and finite from it on.
+- New module? Import it in `features/__init__.py`.
+- To use it in a model, add a **new** set version in `features/sets.py` (never edit an existing
+  one), then run `make feature-catalog` and commit the regenerated catalog.
+
 ## Optional: git hooks
 
 ```bash

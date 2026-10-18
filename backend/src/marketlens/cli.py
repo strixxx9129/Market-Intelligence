@@ -4,6 +4,8 @@
     marketlens ingest --source kaggle_btc --mode incremental
     marketlens seed-assets
     marketlens connectors
+    marketlens build-features --feature-set v1
+    marketlens features
 
 Commands are thin: they build dependencies and call services, exactly like routers and tasks.
 """
@@ -20,6 +22,9 @@ from marketlens.core.config import get_settings
 from marketlens.core.logging import configure_logging
 from marketlens.db.seed import seed_assets
 from marketlens.db.session import create_engine, create_sessionmaker
+from marketlens.features import FEATURES
+from marketlens.features.builder import FeatureBuilder
+from marketlens.features.sets import FEATURE_SETS
 from marketlens.ingestion.connectors.base import available_connectors, get_connector
 from marketlens.ingestion.pipeline import IngestionPipeline, IngestMode
 from marketlens.models import PipelineRunStatus
@@ -99,6 +104,36 @@ def connectors() -> None:
             f"{name}: intervals={','.join(cls.supported_intervals)} "
             f"assets={','.join(cls.supported_assets) or 'any'}"
         )
+
+
+@app.command("build-features")
+def build_features(
+    feature_set: Annotated[str, typer.Option(help="Version from FEATURE_SETS, e.g. v1.")] = "v1",
+    asset: Annotated[str, typer.Option(help="Asset symbol.")] = "BTC-USD",
+) -> None:
+    """Compute a feature set from market_prices and UPSERT it into features (idempotent)."""
+
+    async def work(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+        r = await FeatureBuilder(sessionmaker).build(feature_set, asset)
+        first = r.first_ts.date() if r.first_ts is not None else "-"
+        last = r.last_ts.date() if r.last_ts is not None else "-"
+        typer.echo(
+            f"feature set {r.feature_set} (id {r.feature_set_id}, code {r.code_hash[:12]}…)\n"
+            f"  candles: {r.candles:,}   warm-up rows dropped: {r.warmup_rows}\n"
+            f"  feature rows: {r.rows:,} ({first} → {last})"
+            f"   inserted/changed: {r.rows_changed:,}"
+        )
+
+    _run_with_db(work)
+
+
+@app.command("features")
+def list_features() -> None:
+    """List registered features and feature sets."""
+    for name, spec in sorted(FEATURES.items()):
+        typer.echo(f"{name:<24} {spec.family:<11} lookback={spec.lookback:<3} {spec.description}")
+    for version, names in FEATURE_SETS.items():
+        typer.echo(f"set {version}: {len(names)} features")
 
 
 if __name__ == "__main__":

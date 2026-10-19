@@ -8,7 +8,7 @@ parameters.
 
 import asyncio
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from celery import Task, chain
@@ -21,6 +21,7 @@ from marketlens.ingestion.connectors.base import get_connector
 from marketlens.ingestion.pipeline import IngestionPipeline, IngestMode
 from marketlens.ml.dataset import load_dataset
 from marketlens.ml.train import TrainConfig, Trainer
+from marketlens.monitoring.service import run_check
 from marketlens.repositories import ingestion_repo, prediction_repo
 from marketlens.services.data_health import check_health
 from marketlens.services.prediction import PredictionService
@@ -214,6 +215,35 @@ def backfill(self: Task, start: str, end: str, asset: str | None = None) -> dict
         )
 
     return run_reliably(self, "backfill", params, work, lock_ttl=HOUR)
+
+
+# ---------------------------------------------------------------- monitoring
+def _monitor(self: Task, check: str, now: str | None, lock_ttl: int) -> dict[str, Any]:
+    params: dict[str, Any] = {"now": now}
+
+    async def work(ctx: RunContext) -> dict[str, Any]:
+        at = datetime.fromisoformat(now) if now else datetime.now(UTC)
+        return await run_check(check, ctx.sessionmaker, at, pipeline_run_id=ctx.run_id)
+
+    return run_reliably(self, f"monitor_{check}", params, work, lock_ttl=lock_ttl)
+
+
+@_task("monitor_freshness")
+def monitor_freshness(self: Task, now: str | None = None) -> dict[str, Any]:
+    """Hours since the newest candle closed, per asset (hourly)."""
+    return _monitor(self, "freshness", now, 10 * MINUTE)
+
+
+@_task("monitor_drift")
+def monitor_drift(self: Task, now: str | None = None) -> dict[str, Any]:
+    """PSI + KS per feature and PSI on P(up) for the production model (daily)."""
+    return _monitor(self, "drift", now, 30 * MINUTE)
+
+
+@_task("monitor_performance")
+def monitor_performance(self: Task, now: str | None = None) -> dict[str, Any]:
+    """Rolling 30/90-day live log loss, Brier, accuracy vs references (daily)."""
+    return _monitor(self, "performance", now, 30 * MINUTE)
 
 
 # ---------------------------------------------------------------- chains (launched by Beat)

@@ -1,0 +1,26 @@
+# Provisioned at startup: no clicking around in the UI, and reproducible for every contributor.
+# Prometheus: request/task metrics. PostgreSQL: monitoring_metrics / monitoring_alerts history.
+# NOTE: dev uses the application DB user; in production give Grafana a read-only role.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+
+  - name: MarketLens DB
+    uid: marketlens-db
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: postgres:5432
+    user: ${POSTGRES_USER}
+    jsonData:
+      database: ${POSTGRES_DB}
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+    secureJsonData:
+      password: ${POSTGRES_PASSWORD}

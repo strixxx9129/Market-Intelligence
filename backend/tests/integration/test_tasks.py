@@ -291,7 +291,9 @@ def test_lock_release_only_by_its_owner(task_env: None) -> None:
 
 
 # ---------------------------------------------------------------- 3. idempotent predict
-def _setup_production_model(tmp_path: Path, n_days: int = 120) -> int:
+def _setup_production_model(
+    tmp_path: Path, n_days: int = 120, train_days: int | None = None
+) -> int:
     rng = np.random.default_rng(0)
     close = 100 * np.exp(np.cumsum(rng.normal(0, 0.02, n_days)))
     days = pd.date_range("2024-01-01", periods=n_days, freq="1D", tz="UTC")
@@ -350,7 +352,7 @@ def _setup_production_model(tmp_path: Path, n_days: int = 120) -> int:
                 feature_set_id=fs.id,
                 training_run_id=run_id,
                 train_start=days[0].to_pydatetime(),
-                train_end=days[-1].to_pydatetime(),
+                train_end=days[(train_days or n_days) - 1].to_pydatetime(),
                 metrics={},
                 mlflow_run_id=None,
                 artifact_uri=path.as_uri(),

@@ -20,11 +20,13 @@ from kombu import Queue
 
 from marketlens.core.config import get_settings
 from marketlens.core.logging import configure_logging
+from marketlens.core.observability import init_sentry
 
 settings = get_settings()
 configure_logging(settings.log_level, json=settings.log_json)
+init_sentry("worker")
 
-QUEUES = ("ingest", "features", "train", "predict")
+QUEUES = ("ingest", "features", "train", "predict", "monitoring")
 
 celery_app = Celery(
     "marketlens",
@@ -55,11 +57,15 @@ celery_app.conf.update(
         "marketlens.train_candidates": {"queue": "train"},
         "marketlens.promote_model": {"queue": "train"},
         "marketlens.weekly_training": {"queue": "train"},
+        "marketlens.monitor_freshness": {"queue": "monitoring"},
+        "marketlens.monitor_drift": {"queue": "monitoring"},
+        "marketlens.monitor_performance": {"queue": "monitoring"},
     },
     result_expires=7 * 24 * 3600,
     broker_transport_options={"visibility_timeout": 4 * 3600},  # > longest task (training)
 )
 
+from marketlens.tasks import metrics as _task_metrics  # noqa: E402, F401  (signal handlers)
 from marketlens.tasks.schedules import BEAT_SCHEDULE  # noqa: E402
 
 celery_app.conf.beat_schedule = BEAT_SCHEDULE

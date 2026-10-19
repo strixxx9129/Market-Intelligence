@@ -76,6 +76,19 @@ class Settings(BaseSettings):
     rate_limit_enabled: bool = True
     cache_enabled: bool = True
 
+    # --- Monitoring (Phase 9) ---
+    freshness_max_hours: float = 36.0  # since the newest candle CLOSED (ts + 24 h)
+    psi_warning: float = 0.10
+    psi_alert: float = 0.25
+    ks_alpha: float = 0.01  # KS p-value below this = "different" (second opinion only)
+    drift_window_days: int = 30
+    performance_min_n: int = 20  # fewer scored forecasts = "insufficient data", never an alert
+    performance_logloss_margin: float = 0.01  # worse than the reference by more than this
+    monitoring_alert_cooldown_hours: float = 24.0
+    monitoring_webhook_url: str | None = None  # Discord or Slack incoming webhook
+    sentry_dsn: str | None = None
+    sentry_traces_sample_rate: float = 0.0
+
     # Comma-separated in the environment: CORS_ORIGINS=http://a,http://b
     cors_origins: Annotated[list[str], NoDecode] = []
 

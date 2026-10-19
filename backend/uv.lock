@@ -1385,6 +1385,7 @@ dependencies = [
     { name = "boto3" },
     { name = "celery" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "joblib" },
     { name = "kaggle" },
     { name = "lightgbm" },
@@ -1392,12 +1393,15 @@ dependencies = [
     { name = "numpy" },
     { name = "pandas" },
     { name = "pandera" },
+    { name = "prometheus-client" },
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pyjwt" },
     { name = "redis" },
     { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "sentry-sdk", extra = ["celery", "fastapi"] },
     { name = "slowapi" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "structlog" },
@@ -1418,7 +1422,6 @@ eda = [
     { name = "jupyterlab" },
     { name = "jupytext" },
     { name = "matplotlib" },
-    { name = "scipy" },
     { name = "statsmodels" },
 ]
 
@@ -1430,6 +1433,7 @@ requires-dist = [
     { name = "boto3", specifier = ">=1.35" },
     { name = "celery", specifier = ">=5.4" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "joblib", specifier = ">=1.4" },
     { name = "kaggle", specifier = ">=1.6" },
     { name = "lightgbm", specifier = ">=4.5" },
@@ -1437,12 +1441,15 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "pandera", specifier = ">=0.24" },
+    { name = "prometheus-client", specifier = ">=0.21" },
     { name = "pyarrow", specifier = ">=17" },
     { name = "pydantic", specifier = ">=2.8" },
     { name = "pydantic-settings", specifier = ">=2.4" },
     { name = "pyjwt", specifier = ">=2.9" },
     { name = "redis", specifier = ">=5.0" },
     { name = "scikit-learn", specifier = ">=1.5" },
+    { name = "scipy", specifier = ">=1.14" },
+    { name = "sentry-sdk", extras = ["fastapi", "celery"], specifier = ">=2.18" },
     { name = "slowapi", specifier = ">=0.1.9" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.30" },
     { name = "structlog", specifier = ">=24.1" },
@@ -1463,7 +1470,6 @@ eda = [
     { name = "jupyterlab", specifier = ">=4.2" },
     { name = "jupytext", specifier = ">=1.16" },
     { name = "matplotlib", specifier = ">=3.9" },
-    { name = "scipy", specifier = ">=1.14" },
     { name = "statsmodels", specifier = ">=0.14" },
 ]
 
@@ -2480,6 +2486,27 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c5/f0/184b4b5f8d00f2a92cf96eec8967a3d550b52cf94362dad1100df9e48d57/send2trash-2.1.0.tar.gz", hash = "sha256:1c72b39f09457db3c05ce1d19158c2cbef4c32b8bedd02c155e49282b7ea7459", size = 17255, upload-time = "2026-01-14T06:27:36.056Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1c/78/504fdd027da3b84ff1aecd9f6957e65f35134534ccc6da8628eb71e76d3f/send2trash-2.1.0-py3-none-any.whl", hash = "sha256:0da2f112e6d6bb22de6aa6daa7e144831a4febf2a87261451c4ad849fe9a873c", size = 17610, upload-time = "2026-01-14T06:27:35.218Z" },
+]
+
+[[package]]
+name = "sentry-sdk"
+version = "2.72.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/26/c1/d2bbb2b03bdc2ef14b35e02b647b8489156c50b6e0b8bacc5fa303902e23/sentry_sdk-2.72.0.tar.gz", hash = "sha256:0d2ffbc28ee2e63cbaf3d015e93b448cffcc3ef3be03a44704ad36ade72faa95", size = 1069699, upload-time = "2026-10-12T13:08:11.195Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d0/0b/0dd9686842d9dc49c3ee84cced31c54bceb0fb52a826be7d3d4fe30d882a/sentry_sdk-2.72.0-py3-none-any.whl", hash = "sha256:3e13ace4ffd0b3cc78288236edfc4e4bd90eb12a396cc5845fa10a58ff289f50", size = 544754, upload-time = "2026-10-12T13:08:01.619Z" },
+]
+
+[package.optional-dependencies]
+celery = [
+    { name = "celery" },
+]
+fastapi = [
+    { name = "fastapi" },
 ]
 
 [[package]]

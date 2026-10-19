@@ -29,6 +29,10 @@ dependencies = [
     "argon2-cffi>=23.1",
     "pyjwt>=2.9",
     "slowapi>=0.1.9",
+    "prometheus-client>=0.21",
+    "sentry-sdk[fastapi,celery]>=2.18",
+    "scipy>=1.14",  # already installed via scikit-learn; used directly (KS test)
+    "httpx>=0.27",  # webhook delivery (also the test client)
 ]
 
 [project.scripts]
@@ -52,7 +56,6 @@ dev = [
 # Exploration only (notebooks/, scripts/). Never installed in the api/worker images.
 eda = [
     "matplotlib>=3.9",
-    "scipy>=1.14",
     "statsmodels>=0.14",
     "jupyterlab>=4.2",
     "jupytext>=1.16",
@@ -98,7 +101,7 @@ plugins = ["pydantic.mypy"]
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["celery", "celery.*", "pandas", "pandas.*", "sklearn", "sklearn.*", "lightgbm", "lightgbm.*", "mlflow", "mlflow.*", "joblib", "joblib.*", "boto3", "boto3.*", "botocore", "botocore.*", "pyarrow", "pyarrow.*", "kaggle", "kaggle.*", "asyncpg", "asyncpg.*", "kombu", "kombu.*", "slowapi", "slowapi.*", "limits", "limits.*"]
+module = ["celery", "celery.*", "pandas", "pandas.*", "sklearn", "sklearn.*", "lightgbm", "lightgbm.*", "mlflow", "mlflow.*", "joblib", "joblib.*", "boto3", "boto3.*", "botocore", "botocore.*", "pyarrow", "pyarrow.*", "kaggle", "kaggle.*", "asyncpg", "asyncpg.*", "kombu", "kombu.*", "slowapi", "slowapi.*", "limits", "limits.*", "scipy", "scipy.*", "prometheus_client", "prometheus_client.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

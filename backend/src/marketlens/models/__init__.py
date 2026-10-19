@@ -6,6 +6,7 @@ from marketlens.models.data_quality_issue import DataQualityIssue, IssueSeverity
 from marketlens.models.feature import Feature
 from marketlens.models.feature_set import FeatureSet
 from marketlens.models.market_price import MarketPrice
+from marketlens.models.monitoring import MonitoringAlert, MonitoringMetric
 from marketlens.models.pipeline_run import PipelineRun, PipelineRunStatus
 from marketlens.models.prediction import Prediction, PredictionOutcome, PromotionDecision
 from marketlens.models.raw_ingestion import RawIngestion
@@ -33,6 +34,8 @@ __all__ = [
     "IssueSeverity",
     "MarketPrice",
     "ModelVersion",
+    "MonitoringAlert",
+    "MonitoringMetric",
     "OosPrediction",
     "PipelineRun",
     "PipelineRunStatus",

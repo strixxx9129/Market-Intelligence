@@ -28,6 +28,8 @@ Then open:
 | Liveness / readiness | http://localhost:8000/healthz · http://localhost:8000/readyz |
 | MLflow | http://localhost:5000 |
 | S3 API (SeaweedFS) | http://localhost:8333 |
+| Grafana (user `admin`, password `GRAFANA_ADMIN_PASSWORD`) | http://localhost:3001 |
+| Prometheus | http://localhost:9090 |
 
 Other targets: `make seed` (reference assets), `make ingest` (raw data → `market_prices`;
 `MODE=full|incremental`, `FORCE=1`), `make features` (build feature set `v1`), `make feature-catalog`,
@@ -47,6 +49,13 @@ to 60/min per IP; register (`POST /api/v1/auth/register`), log in, then create a
 `/api/v1/me/api-keys` and send it as `X-API-Key` (1000/min). First admin:
 `docker compose -f infra/docker-compose.yml --env-file .env run --rm api marketlens admin create-user --email you@example.org --role admin`.
 Load test: `make loadtest` (Locust, headless) or `make loadtest-ui` (http://localhost:8089).
+
+Monitoring (Phase 9): Beat checks freshness hourly, input/prediction drift (PSI + KS vs the
+model's training data) at 00:45 and live log loss/Brier/accuracy at 01:15. Results go to
+`monitoring_metrics`. Breaches go to `monitoring_alerts` and to `MONITORING_WEBHOOK_URL`
+(Discord or Slack), at most once per 24 h per alert. Grafana's "MarketLens overview" dashboard
+shows API latency, Celery tasks and data/model health. Set `SENTRY_DSN` to enable Sentry.
+See [ADR 0010](docs/adr/0010-monitoring.md) for how to read PSI.
 
 Data exploration (Phase 2): put a Kaggle token in `~/.kaggle/` (`kaggle.json` or `access_token`),
 then `make data` (download + SHA-256 manifest), `make notebook` (Jupyter Lab on

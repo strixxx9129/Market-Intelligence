@@ -28,6 +28,9 @@ x-worker: &worker
   environment:
     <<: *backend-env
     KAGGLE_REFRESH: "true"
+    # prometheus-client multiprocess mode: prefork children write samples here and the
+    # worker's main process serves the aggregate on :9808 (see tasks/metrics.py).
+    PROMETHEUS_MULTIPROC_DIR: /tmp/prometheus
   volumes:
     - ../backend:/app
     - ../data:/data
@@ -146,7 +149,8 @@ services:
   worker:
     <<: *worker
     command: ["celery", "-A", "marketlens.tasks.celery_app", "worker", "--loglevel=INFO",
-              "--queues=ingest,features,predict", "--concurrency=2", "--hostname=daily@%h"]
+              "--queues=ingest,features,predict,monitoring", "--concurrency=2",
+              "--hostname=daily@%h"]
     healthcheck:
       test: ["CMD-SHELL", "celery -A marketlens.tasks.celery_app inspect ping -d daily@$$HOSTNAME --timeout 5"]
       interval: 30s
@@ -175,6 +179,51 @@ services:
     volumes:
       - ../backend:/app
       - beat_data:/beat
+
+  # Observability: Prometheus scrapes the API and workers; Grafana shows them next to the
+  # monitoring_metrics history from PostgreSQL. Both are published on 127.0.0.1 only.
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml",
+              "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=15d"]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-marketlens-grafana}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/marketlens.json
+      # Expanded inside provisioning/datasources/datasources.yml.
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   # Load testing (profile "loadtest"): `make loadtest` runs headless against `api-load`, a
   # second API instance with rate limiting OFF so it measures the service, not the limiter.
@@ -229,3 +278,5 @@ volumes:
   redis_data:
   seaweedfs_data:
   beat_data:
+  prometheus_data:
+  grafana_data:

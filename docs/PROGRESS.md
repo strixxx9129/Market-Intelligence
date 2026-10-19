@@ -394,11 +394,86 @@ buy-and-hold and the baseline → [`docs/backtest-report.md`](backtest-report.md
 - Rate-limit tests reset limiter counters in the dev Redis.
 - User alerts are not evaluated or delivered yet.
 
-## Next: Phase 9: Website
+## Phase 9: Monitoring ✅ (2026-10-19)
+
+**Goal:** detect stale data, input drift and model degradation before users notice.
+
+### Built
+- Migration `49f34908b251`:
+  - `monitoring_metrics` (metric_name, asset_id, model_version_id, ts, value, threshold,
+    breached, details, pipeline_run_id), UNIQUE NULLS NOT DISTINCT on the natural key;
+  - `monitoring_alerts` (dedup key, severity, status, delivery error).
+- `monitoring/`:
+  - `stats.py`: PSI with reference-fixed quantile bins, categorical PSI, KS, adaptive bins,
+    noise floor, chi-squared critical value.
+  - `freshness.py`: hours since the last candle closed.
+  - `drift.py`: PSI + KS per feature vs the model's training window, and prediction drift on
+    P(up) vs its walk-forward predictions.
+  - `performance.py`: 30/90-day log loss, Brier and accuracy vs walk-forward, coin flip and
+    always-up.
+  - `alerts.py`: thresholds from config, metric UPSERT, Discord/Slack webhook, cooldown dedup.
+  - `service.py`
+- Repository `monitoring_repo.py`.
+- Celery:
+  - tasks `monitor_freshness|drift|performance` (queue `monitoring`, with retries, locks and
+    `pipeline_runs`);
+  - Beat schedule: hh:05, 00:45, 01:15.
+- `/api/v1/status` includes monitoring alerts from the last 24 h.
+- Observability:
+  - `core/observability.py`: request count/latency by full route template, `/metrics`, and
+    optional Sentry (`SENTRY_DSN`).
+  - `tasks/metrics.py`: Celery task duration/outcome/retry counters in multiprocess mode, on
+    :9808.
+  - Prometheus v3.5.0 and Grafana 12.1.1 in compose, with provisioned datasources and the
+    "MarketLens overview" dashboard (API, Celery, freshness, PSI, live log loss, alerts).
+- Tests: 584 total. New:
+  - PSI hand calculation, empty bins, constant reference, categorical PSI, KS;
+  - noise floor, plus a false-alarm/power simulation;
+  - webhook payload, route-template labels, Sentry off by default, routes and schedule;
+  - chaos test: 2 days without ingestion plus a ×3 shift, asserting freshness and drift alerts
+    are recorded, delivered once, suppressed inside the cooldown and re-sent after it, and
+    shown on `/status`;
+  - healthy-data control, failed webhook retried, live log-loss breach, insufficient labels.
+
+### Live verification (real data, real worker)
+- Freshness 15.4 h (ok).
+- 7 PSI alerts, all on slow rolling features: `volatility_30d` 5.1, `log_return_30d` 5.1,
+  `close_to_sma_50` 3.7, and others. The last 30 days are a calm regime compared with the
+  2013–2026 training average. `log_return_1d` PSI 0.41 was correctly *not* alerted: not
+  significant on 30 rows.
+- Performance: insufficient data (0 labelled live forecasts).
+- `psi:p_up`: only 1 live forecast so far.
+- Prometheus: the api, worker and worker-train targets are up; Celery counters are aggregated
+  across children.
+- Grafana: dashboard and both datasources provisioned; every SQL panel returns rows.
+
+### Decisions
+- Drift alert = large (PSI > 0.25) AND significant (χ² reading of PSI or KS p < 0.01): textbook
+  thresholds alone alerted on noise in more than 30% of 30-day windows (ADR 0010).
+- Drift triggers investigation, not retraining. Labelled log loss is the degradation signal.
+- Alert dedup and history live in Postgres (cooldown 24 h). Failed deliveries are retried on
+  the next run.
+- New dependencies: prometheus-client, sentry-sdk; scipy and httpx moved to runtime.
+
+### Known issues / notes
+- Slow features show permanent "major" drift against a 13-year training window. This is a
+  regime difference, and it produces up to 7 warnings in one batch. Options: group alerts per
+  model, or compare with a recent reference.
+- The production model is a baseline that ignores features, so feature drift can't hurt its
+  forecasts today.
+- Live performance needs ≥ 20 labelled days before it says anything.
+- `monitoring_metrics` has no retention policy yet. Grafana uses the app DB user (use a
+  read-only role in production).
+- Memory: the full stack (Prometheus, Grafana, MLflow ~1.3 GB, two workers) plus `make test`
+  can exhaust a 4 GB Docker VM (seen as `ENOMEM` or DNS errors, and a hung test). Stop
+  grafana/prometheus/worker-train before running tests, or give Docker more memory.
+
+## Next: Phase 10: Website
 React + TypeScript + Vite + Tailwind + TanStack Query + Lightweight Charts: price chart with
 forecast overlay and disclaimer, model leaderboard/cards, backtest pages, status page, login,
 watchlists/alerts; typed API client generated from OpenAPI; frontend container in compose.
 
 ## Later
 - Alert evaluation task after `predict` + notification channel (e-mail/webhook).
-- Monitoring: data/feature drift and live model performance vs walk-forward expectations.
+- Monitoring follow-ups: grouped alerts per model, metrics retention, Prometheus alert rules
+  for API/worker SLOs.

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from marketlens.core.config import get_settings
 from marketlens.repositories import market_read_repo as repo
-from marketlens.repositories import prediction_repo
+from marketlens.repositories import monitoring_repo, prediction_repo
 from marketlens.schemas.status import Freshness, JobRun, StatusOut, SystemAlert
 
 
@@ -87,6 +87,20 @@ async def platform_status(session: AsyncSession, now: datetime | None = None) ->
                     message="production serves a baseline: no model has passed the promotion gate",
                 )
             )
+
+    # Monitoring alerts (freshness, drift, live performance) from the last 24 h, newest per key.
+    seen: set[str] = set()
+    for a in await monitoring_repo.recent_alerts(session, now - timedelta(hours=24)):
+        if a.alert_key in seen:
+            continue
+        seen.add(a.alert_key)
+        alerts.append(
+            SystemAlert(
+                severity="critical" if a.severity == "critical" else "warning",
+                code=f"monitor:{a.metric_name}",
+                message=a.message,
+            )
+        )
 
     degraded = any(a.severity != "info" for a in alerts)
     return StatusOut(

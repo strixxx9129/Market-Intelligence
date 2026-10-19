@@ -10,7 +10,7 @@ cache and rate limits), so any number of identical replicas can run behind a loa
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 from redis.asyncio import Redis
 
@@ -26,6 +26,7 @@ from marketlens.api.ratelimit import limiter
 from marketlens.api.v1.router import api_router
 from marketlens.core.config import Settings, get_settings
 from marketlens.core.logging import configure_logging, get_logger
+from marketlens.core.observability import PrometheusMiddleware, init_sentry, metrics_response
 from marketlens.db.session import create_engine, create_sessionmaker
 
 logger = get_logger(__name__)
@@ -39,6 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings.jwt_secret.startswith(DEFAULT_SECRET_PREFIX) or len(settings.jwt_secret) < 32
     ):
         raise RuntimeError("refusing to start: set a strong JWT_SECRET for production")
+    init_sentry("api")
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -94,10 +96,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ],
     )
     app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(PrometheusMiddleware)  # outermost: times the whole request
 
     # Probes at the root (where orchestrators expect them) and versioned under /api/v1.
     app.include_router(health.router)
     app.include_router(api_router, prefix="/api/v1")
+
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics() -> Response:
+        """Prometheus scrape endpoint (internal: don't expose through a public proxy)."""
+        return metrics_response()
+
     for route in (health.healthz, health.readyz):
         limiter.exempt(route)  # type: ignore[no-untyped-call]  # probes are never throttled
     return app

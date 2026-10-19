@@ -79,6 +79,9 @@ def test_reliability_defaults() -> None:
         ("marketlens.evaluate_outcomes", "predict"),
         ("marketlens.train_candidates", "train"),
         ("marketlens.promote_model", "train"),
+        ("marketlens.monitor_freshness", "monitoring"),
+        ("marketlens.monitor_drift", "monitoring"),
+        ("marketlens.monitor_performance", "monitoring"),
     ],
 )
 def test_routes(task: str, queue: str) -> None:
@@ -106,6 +109,11 @@ def test_beat_schedule_is_utc_and_as_specified() -> None:
     assert outcomes.hour == {1} and outcomes.minute == {0}
     weekly = BEAT_SCHEDULE["weekly-training"]["schedule"]
     assert weekly.hour == {2} and weekly.minute == {0} and weekly.day_of_week == {0}  # Sunday
+    assert BEAT_SCHEDULE["monitor-freshness"]["schedule"].minute == {5}  # hourly
+    drift = BEAT_SCHEDULE["monitor-drift"]["schedule"]
+    assert drift.hour == {0} and drift.minute == {45}  # after the daily cycle
+    perf = BEAT_SCHEDULE["monitor-performance"]["schedule"]
+    assert perf.hour == {1} and perf.minute == {15}  # after outcomes are scored
 
 
 def test_daily_chain_order_and_immutable_signatures() -> None:

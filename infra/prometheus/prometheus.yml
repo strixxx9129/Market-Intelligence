@@ -1,0 +1,22 @@
+# Scrapes the API (/metrics) and both Celery workers (:9808, multiprocess aggregate).
+# All targets are compose service names: nothing is scraped over the public network.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]
+
+  - job_name: celery
+    static_configs:
+      - targets: ["worker:9808"]
+        labels: {worker: daily}
+      - targets: ["worker-train:9808"]
+        labels: {worker: train}
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

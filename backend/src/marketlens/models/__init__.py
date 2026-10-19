@@ -10,8 +10,21 @@ from marketlens.models.pipeline_run import PipelineRun, PipelineRunStatus
 from marketlens.models.prediction import Prediction, PredictionOutcome, PromotionDecision
 from marketlens.models.raw_ingestion import RawIngestion
 from marketlens.models.training import ModelVersion, OosPrediction, TrainingRun
+from marketlens.models.user import (
+    ALERT_CONDITIONS,
+    Alert,
+    ApiKey,
+    RefreshToken,
+    Role,
+    User,
+    Watchlist,
+    WatchlistItem,
+)
 
 __all__ = [
+    "ALERT_CONDITIONS",
+    "Alert",
+    "ApiKey",
     "Asset",
     "Backtest",
     "DataQualityIssue",
@@ -27,5 +40,10 @@ __all__ = [
     "PredictionOutcome",
     "PromotionDecision",
     "RawIngestion",
+    "RefreshToken",
+    "Role",
     "TrainingRun",
+    "User",
+    "Watchlist",
+    "WatchlistItem",
 ]

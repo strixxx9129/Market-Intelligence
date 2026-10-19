@@ -81,7 +81,9 @@ class PredictionOutcome(Base):
 class PromotionDecision(Base):
     __tablename__ = "promotion_decisions"
     __table_args__ = (
-        CheckConstraint("decision IN ('promoted', 'rejected', 'fallback')", name="decision_valid"),
+        CheckConstraint(
+            "decision IN ('promoted', 'rejected', 'fallback', 'manual')", name="decision_valid"
+        ),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)

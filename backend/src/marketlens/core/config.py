@@ -62,6 +62,20 @@ class Settings(BaseSettings):
     model_cache_dir: Path = Path("/tmp/marketlens-models")
     lock_prefix: str = "marketlens:lock"
 
+    # --- Public API (Phase 8) ---
+    # HS256 signing key for access tokens. MUST be overridden in every real deployment.
+    jwt_secret: str = "dev-only-change-me-32-bytes-minimum!!"
+    jwt_issuer: str = "marketlens"
+    access_token_ttl_s: int = 15 * 60
+    refresh_token_ttl_s: int = 30 * 24 * 3600
+    # Rate limits (slowapi syntax). Shared across API replicas through Redis.
+    rate_limit_anonymous: str = "60/minute"
+    rate_limit_user: str = "300/minute"
+    rate_limit_api_key: str = "1000/minute"
+    rate_limit_auth: str = "5/minute"
+    rate_limit_enabled: bool = True
+    cache_enabled: bool = True
+
     # Comma-separated in the environment: CORS_ORIGINS=http://a,http://b
     cors_origins: Annotated[list[str], NoDecode] = []
 

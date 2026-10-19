@@ -13,6 +13,7 @@ from typing import Any
 
 from celery import Task, chain
 
+from marketlens.core.cache import invalidate_namespaces
 from marketlens.core.config import get_settings
 from marketlens.core.errors import PermanentError
 from marketlens.features.builder import FeatureBuilder
@@ -60,6 +61,8 @@ def ingest(
         result = await IngestionPipeline(ctx.sessionmaker, connector, params["asset"]).run(
             IngestMode(params["mode"]), parent_run_id=ctx.run_id
         )
+        if result.rows_changed:
+            await invalidate_namespaces("assets", "prices", "status")
         return {
             # An unchanged file is "skipped" by the pipeline; the chain still continues.
             "status": "skipped" if result.status.value == "skipped" else "success",
@@ -101,6 +104,8 @@ def build_features(
         r = await FeatureBuilder(ctx.sessionmaker).build(
             params["feature_set"], params["asset"], parent_run_id=ctx.run_id
         )
+        if r.rows_changed:
+            await invalidate_namespaces("features", "status")
         return {
             "status": "success",
             "rows": r.rows_changed,

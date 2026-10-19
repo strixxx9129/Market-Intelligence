@@ -400,6 +400,56 @@ def admin_run_daily(
         typer.echo(f"queued daily chain {daily_chain().apply_async().id}")
 
 
+@admin.command("create-user")
+def admin_create_user(
+    email: Annotated[str, typer.Option(help="Login e-mail.")],
+    role: Annotated[str, typer.Option(help="user, contributor, maintainer or admin.")] = "user",
+    password: Annotated[
+        str,
+        typer.Option(
+            prompt=True,
+            hide_input=True,
+            confirmation_prompt=True,
+            help="Prompted (hidden) if omitted; never pass it on the command line.",
+        ),
+    ] = "",
+) -> None:
+    """Create an account with a given role (the only way to get the first admin)."""
+    from marketlens.models import Role
+    from marketlens.schemas.auth import RegisterIn
+    from marketlens.services import auth as auth_service
+
+    data = RegisterIn(email=email, password=password)  # same validation as the API
+
+    async def work(sessionmaker: async_sessionmaker[AsyncSession]) -> str:
+        async with sessionmaker() as s, s.begin():
+            user = await auth_service.register(s, data.email, data.password)
+            user.role = Role(role)
+            return f"{user.email} ({user.role.value}) id={user.id}"
+
+    typer.echo(f"created {_run_with_db(work)}")
+
+
+@admin.command("set-role")
+def admin_set_role(
+    email: Annotated[str, typer.Option(help="Existing account e-mail.")],
+    role: Annotated[str, typer.Option(help="user, contributor, maintainer or admin.")],
+) -> None:
+    """Change a user's role."""
+    from marketlens.models import Role
+    from marketlens.repositories import user_repo
+
+    async def work(sessionmaker: async_sessionmaker[AsyncSession]) -> str:
+        async with sessionmaker() as s, s.begin():
+            user = await user_repo.by_email(s, email.strip().lower())
+            if user is None:
+                raise typer.BadParameter(f"no user {email}")
+            user.role = Role(role)
+            return f"{user.email} is now {user.role.value}"
+
+    typer.echo(_run_with_db(work))
+
+
 @admin.command("run-weekly")
 def admin_run_weekly(
     sync: Annotated[bool, typer.Option(help="Run the chain inline.")] = False,

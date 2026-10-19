@@ -9,7 +9,7 @@ RUN     := $(COMPOSE) run --rm --no-deps api
 EDA     := $(COMPOSE) --profile eda run --rm --no-deps notebook
 
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate test lint format seed ingest features feature-catalog train report backtest backtest-report daily weekly runs retry backfill logs build data notebook eda
+.PHONY: help up down migrate test lint format seed ingest features feature-catalog train report backtest backtest-report daily weekly runs retry backfill loadtest loadtest-ui logs build data notebook eda
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -81,6 +81,16 @@ retry: ## Replay a failed task run with its original params (RUN=<pipeline_run i
 
 backfill: ## Features + source=backfill predictions for a range (START=YYYY-MM-DD END=YYYY-MM-DD)
 	$(COMPOSE) run --rm api marketlens admin backfill --start $(START) --end $(END) $(if $(SYNC),--sync,)
+
+# ---------------------------------------------------------------- load test (profile "loadtest")
+USERS ?= 50
+DURATION ?= 60s
+loadtest: ## Headless Locust run vs a rate-limit-free API instance (USERS=50 DURATION=60s)
+	$(COMPOSE) --profile loadtest run --rm locust --headless -u $(USERS) -r 10 -t $(DURATION) --only-summary
+	$(COMPOSE) --profile loadtest stop api-load
+
+loadtest-ui: ## Locust web UI on http://localhost:8089
+	$(COMPOSE) --profile loadtest up locust
 
 logs: ## Tail logs of all services
 	$(COMPOSE) logs -f --tail=100

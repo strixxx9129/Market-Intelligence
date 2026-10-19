@@ -344,8 +344,61 @@ buy-and-hold and the baseline → [`docs/backtest-report.md`](backtest-report.md
   across tests, so that test waits on `pipeline_runs` instead.
 - Forecasts target the next UTC day; `evaluate_outcomes` scores them the morning after.
 
-## Next: Phase 8: Read API
-Read-only FastAPI endpoints from PostgreSQL/Redis only (rule 5): `/api/v1/assets`,
-`/api/v1/prices`, `/api/v1/forecasts/latest` (model_version, as_of_ts, disclaimer: rule 6),
-`/api/v1/models` (stages + promotion decisions), `/api/v1/backtests`, `/api/v1/pipeline/runs`,
-data-quality summary; Redis caching, pagination, OpenAPI docs.
+## Phase 8: Public API ✅ (2026-10-19)
+
+**Goal:** a versioned, documented, cached, rate-limited API for the website and developers.
+
+### Built
+- Public (cached, rate limited): `GET /api/v1/assets`, `/assets/{symbol}/prices` (keyset
+  cursor on ts, `from`/`to`), `/assets/{symbol}/features`, `/assets/{symbol}/forecast`
+  (production model, `model_version`, `as_of_ts`, `target_ts`, disclaimer, 90-day live track
+  record vs always-up and coin flip), `/models` (leaderboard), `/models/{id}` (model card),
+  `/backtests/{id}`, `/status` (freshness, last run per job, derived system alerts).
+- Auth: `users` (Argon2id), JWT access 15 min, rotating refresh tokens with reuse detection,
+  roles user < contributor < maintainer < admin, `api_keys` (SHA-256 at rest, shown once);
+  `POST /auth/register|login|refresh|logout`.
+- `/me`, `/me/watchlists[...]`, `/me/alerts[...]` (stored rules), `/me/api-keys[...]`.
+- Admin: `POST /admin/runs/{id}/retry` (enqueues), `POST /admin/models/{id}/promote` (gate;
+  `force` + reason → audited `manual` decision). CLI `marketlens admin create-user|set-role`.
+- Infrastructure: `core/security.py`, `core/cache.py` (versioned cache-aside + invalidation
+  hooks in prediction/promotion services and ingest/feature tasks), `api/ratelimit.py`,
+  `api/middleware.py` (request ID, verified identity, rate-limit headers), `api/errors.py`
+  (single error format), `api/deps.py` (auth, roles, cached responses with ETag/304).
+- Migration `cb001245dfaf`: users, refresh_tokens, api_keys, watchlists, watchlist_items, alerts;
+  promotion_decisions accepts `manual`.
+- `infra/loadtest/locustfile.py`, compose profile `loadtest` (`api-load` without limits +
+  pinned `locustio/locust:2.42.6`), `make loadtest` / `make loadtest-ui`. ADR 0009.
+- Tests: 560 total (27 new API tests): every router, cursor walk, error format, request ID,
+  auth flow incl. refresh reuse revoking the family, expired/forged tokens, roles (maintainer
+  can't admin), ownership isolation, API keys, admin retry/promote (gate, force audit),
+  cache HIT without DB, ETag 304, invalidation on a new prediction, rate limits per IP / per
+  key / fake keys / login throttle.
+
+### Live checks
+- Real data: assets, prices, forecast (baseline `historical_up_rate` v2, P(up) 0.5231 for
+  2026-10-19, track record n=0), leaderboard, status.
+- Rate limiting: 60 anonymous requests pass, then 429 with Retry-After and X-RateLimit headers.
+- Locust, 50 users, 45 s: 2,072 requests, 0 failures, p50 7 ms, p95 17 ms (cache warm).
+- `ENVIRONMENT=prod` with the default JWT secret refuses to start.
+
+### Decisions
+- API writes only its own operational data; admin actions enqueue or flip stages via the gate.
+- Namespace-version cache invalidation; public data `Cache-Control: public`; `/me` no-store.
+- Rate-limit identity verified before limiting; limits applied by a router dependency.
+- Simple e-mail validation (no `email-validator` dependency); verification would be by e-mail.
+- New deps: argon2-cffi, PyJWT, slowapi.
+
+### Known issues / notes
+- slowapi 0.1.10 + FastAPI 0.146: its middleware misses nested routers and fails open; worked
+  around (ADR 0009) and guarded by tests.
+- Rate-limit tests reset limiter counters in the dev Redis.
+- User alerts are not evaluated or delivered yet.
+
+## Next: Phase 9: Website
+React + TypeScript + Vite + Tailwind + TanStack Query + Lightweight Charts: price chart with
+forecast overlay and disclaimer, model leaderboard/cards, backtest pages, status page, login,
+watchlists/alerts; typed API client generated from OpenAPI; frontend container in compose.
+
+## Later
+- Alert evaluation task after `predict` + notification channel (e-mail/webhook).
+- Monitoring: data/feature drift and live model performance vs walk-forward expectations.

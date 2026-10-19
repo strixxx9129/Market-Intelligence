@@ -26,6 +26,9 @@ dependencies = [
     "pyarrow>=17",
     "boto3>=1.35",
     "kaggle>=1.6",
+    "argon2-cffi>=23.1",
+    "pyjwt>=2.9",
+    "slowapi>=0.1.9",
 ]
 
 [project.scripts]
@@ -95,7 +98,7 @@ plugins = ["pydantic.mypy"]
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["celery", "celery.*", "pandas", "pandas.*", "sklearn", "sklearn.*", "lightgbm", "lightgbm.*", "mlflow", "mlflow.*", "joblib", "joblib.*", "boto3", "boto3.*", "botocore", "botocore.*", "pyarrow", "pyarrow.*", "kaggle", "kaggle.*", "asyncpg", "asyncpg.*", "kombu", "kombu.*"]
+module = ["celery", "celery.*", "pandas", "pandas.*", "sklearn", "sklearn.*", "lightgbm", "lightgbm.*", "mlflow", "mlflow.*", "joblib", "joblib.*", "boto3", "boto3.*", "botocore", "botocore.*", "pyarrow", "pyarrow.*", "kaggle", "kaggle.*", "asyncpg", "asyncpg.*", "kombu", "kombu.*", "slowapi", "slowapi.*", "limits", "limits.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

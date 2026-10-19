@@ -20,7 +20,9 @@ from typing import Any
 import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from marketlens.core.cache import invalidate_namespaces
 from marketlens.core.config import get_settings
+from marketlens.core.errors import ServiceError
 from marketlens.core.logging import get_logger
 from marketlens.models import ModelVersion, TrainingRun
 from marketlens.repositories import backtest_repo, ingestion_repo, prediction_repo
@@ -108,6 +110,12 @@ class PromotionService:
             return mv
 
     async def promote(self, asset: str, pipeline_run_id: uuid.UUID | None = None) -> dict[str, Any]:
+        result = await self._promote(asset, pipeline_run_id)
+        # After the transaction committed, whichever path was taken (promote / reject / fallback).
+        await invalidate_namespaces("models", "forecast", "status")
+        return result
+
+    async def _promote(self, asset: str, pipeline_run_id: uuid.UUID | None) -> dict[str, Any]:
         async with self.sessionmaker() as s, s.begin():
             staging = await prediction_repo.models_in_stage(s, asset, "staging")
             current = await prediction_repo.production_model(s, asset)
@@ -177,6 +185,57 @@ class PromotionService:
             "candidate": cand.id,
         }
 
+    async def promote_version(
+        self, model_version_id: int, force: bool, reason: str | None, actor: str
+    ) -> dict[str, Any]:
+        """Admin action on one specific version. Same gate as the weekly job; `force` overrides
+        a failing gate but requires a reason, and is recorded as a 'manual' decision."""
+        if force and not (reason and reason.strip()):
+            raise ServiceError(422, "force requires a reason", "reason_required")
+        async with self.sessionmaker() as s, s.begin():
+            cand = await s.get(ModelVersion, model_version_id)
+            if cand is None:
+                raise ServiceError(404, "model version not found", "model_not_found")
+            if cand.task != "classification":
+                raise ServiceError(422, "only classification models serve forecasts", "wrong_task")
+            run = await backtest_repo.get_training_run(s, cand.training_run_id)
+            assert run is not None
+            baseline_algo = _best_baseline_algo(run)
+            baseline = await prediction_repo.version_by_algo(s, run.id, baseline_algo)
+            assert baseline is not None
+            gate = evaluate_gate(
+                _fold_log_loss(run, cand.algo),
+                _fold_log_loss(run, baseline_algo),
+                self.settings.promotion_min_logloss_improvement,
+                self.settings.promotion_max_worse_folds,
+            )
+            reasons = [f"requested by {actor}", *gate.reasons]
+            asset = cand.name.split("_")[0]
+            current = await prediction_repo.production_model(s, asset)
+            if gate.passed or force:
+                decision = "promoted" if gate.passed else "manual"
+                if not gate.passed:
+                    reasons.append(f"gate OVERRIDDEN: {reason}")
+                if current is not None and current.id != cand.id:
+                    await prediction_repo.set_stage(s, current.id, "archived")
+                await prediction_repo.set_stage(s, cand.id, "production")
+                production_id: int | None = cand.id
+            else:
+                decision = "rejected"
+                production_id = current.id if current else None
+            await prediction_repo.record_decision(
+                s,
+                candidate_model_version_id=cand.id,
+                baseline_model_version_id=baseline.id,
+                production_model_version_id=production_id,
+                decision=decision,
+                reasons=reasons,
+                metrics={**gate.metrics, "actor": actor, "forced": force and not gate.passed},
+            )
+        await invalidate_namespaces("models", "forecast", "status")
+        logger.info("manual_promotion", decision=decision, model=cand.name, actor=actor)
+        return {"decision": decision, "reasons": reasons, "production": production_id}
+
     async def ensure_production(
         self, asset: str, pipeline_run_id: uuid.UUID | None = None
     ) -> ModelVersion:
@@ -188,7 +247,8 @@ class PromotionService:
             await self._fallback(s, asset, pipeline_run_id, "no production model")
             current = await prediction_repo.production_model(s, asset)
             assert current is not None
-            return current
+        await invalidate_namespaces("models", "forecast", "status")  # after the commit
+        return current
 
     async def _fallback(
         self, s: AsyncSession, asset: str, pipeline_run_id: uuid.UUID | None, why: str

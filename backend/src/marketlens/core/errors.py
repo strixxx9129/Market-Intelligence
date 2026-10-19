@@ -41,3 +41,18 @@ TRANSIENT_EXCEPTIONS: tuple[type[BaseException], ...] = (
 
 def is_transient(exc: BaseException) -> bool:
     return isinstance(exc, TRANSIENT_EXCEPTIONS)
+
+
+class ServiceError(Exception):
+    """A domain error with a suggested HTTP status, raised by services.
+
+    Services are shared by the API, Celery tasks and the CLI, so they must not depend on the
+    web layer; the API maps this to its standard error body.
+    """
+
+    def __init__(self, status_code: int, message: str, code: str, details: object = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+        self.message = message
+        self.code = code
+        self.details = details

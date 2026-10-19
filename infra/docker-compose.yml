@@ -176,6 +176,38 @@ services:
       - ../backend:/app
       - beat_data:/beat
 
+  # Load testing (profile "loadtest"): `make loadtest` runs headless against `api-load`, a
+  # second API instance with rate limiting OFF so it measures the service, not the limiter.
+  api-load:
+    <<: *backend
+    profiles: ["loadtest"]
+    command: ["uvicorn", "marketlens.main:app", "--host", "0.0.0.0", "--port", "8000",
+              "--workers", "2"]
+    environment:
+      <<: *backend-env
+      RATE_LIMIT_ENABLED: "false"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  locust:
+    image: locustio/locust:2.42.6
+    profiles: ["loadtest"]
+    volumes:
+      - ./loadtest:/mnt/locust:ro
+    environment:
+      # Env vars (not `command`) so `compose run locust --headless ...` keeps them.
+      LOCUST_LOCUSTFILE: /mnt/locust/locustfile.py
+      LOCUST_HOST: http://api-load:8000
+      ML_API_KEY: ${ML_API_KEY:-}
+    ports:
+      - "127.0.0.1:8089:8089"
+    depends_on:
+      api-load:
+        condition: service_healthy
+
   # Jupyter Lab for exploration. Only starts with `make notebook` (profile "eda").
   # No token: the port is published on 127.0.0.1 only, never on the network.
   notebook:

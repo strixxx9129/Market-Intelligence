@@ -42,6 +42,12 @@ chain at 00:15 UTC (Kaggle download → ingest → validate → features → pre
 01:00 and retrains on Sundays 02:00 behind a promotion gate. `make daily` / `make weekly` run them now,
 `make runs` shows attempts, `make retry RUN=<id>` replays a failed run, `make backfill START=… END=…`.
 
+Public API (Phase 8): interactive docs at http://localhost:8000/docs. Anonymous reads are limited
+to 60/min per IP; register (`POST /api/v1/auth/register`), log in, then create a key under
+`/api/v1/me/api-keys` and send it as `X-API-Key` (1000/min). First admin:
+`docker compose -f infra/docker-compose.yml --env-file .env run --rm api marketlens admin create-user --email you@example.org --role admin`.
+Load test: `make loadtest` (Locust, headless) or `make loadtest-ui` (http://localhost:8089).
+
 Data exploration (Phase 2): put a Kaggle token in `~/.kaggle/` (`kaggle.json` or `access_token`),
 then `make data` (download + SHA-256 manifest), `make notebook` (Jupyter Lab on
 http://localhost:8888) or `make eda` (run `notebooks/01_eda.py` end-to-end). Findings:

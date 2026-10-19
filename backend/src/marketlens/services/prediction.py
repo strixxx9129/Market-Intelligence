@@ -19,6 +19,7 @@ import mlflow
 import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from marketlens.core.cache import invalidate_namespaces
 from marketlens.core.config import get_settings
 from marketlens.core.errors import PermanentError
 from marketlens.models import FeatureSet, ModelVersion
@@ -100,6 +101,8 @@ class PredictionService:
         ]
         async with self.sessionmaker() as s, s.begin():
             await prediction_repo.upsert_predictions(s, rows)
+        # New forecast → cached /forecast and /status responses are now stale.
+        await invalidate_namespaces("forecast", "status")
         return {
             "status": "success",
             "rows": len(rows),
@@ -131,4 +134,6 @@ class PredictionService:
             )
         async with self.sessionmaker() as s, s.begin():
             await prediction_repo.upsert_outcomes(s, rows)
+        if rows:  # the 90-day track record shown with the forecast changed
+            await invalidate_namespaces("forecast")
         return {"status": "success", "rows": len(rows)}

@@ -37,6 +37,11 @@ Models: [docs/experiment-report.md](docs/experiment-report.md) (walk-forward, vs
 Backtests: `make backtest MV=<model version id>`, `make backtest-report` → [docs/backtest-report.md](docs/backtest-report.md)
 (hypothetical, after costs, vs buy-and-hold; not financial advice).
 
+Scheduled pipeline (Phase 7): `make up` starts `worker`, `worker-train` and `beat`. Beat runs the daily
+chain at 00:15 UTC (Kaggle download → ingest → validate → features → predict), scores forecasts at
+01:00 and retrains on Sundays 02:00 behind a promotion gate. `make daily` / `make weekly` run them now,
+`make runs` shows attempts, `make retry RUN=<id>` replays a failed run, `make backfill START=… END=…`.
+
 Data exploration (Phase 2): put a Kaggle token in `~/.kaggle/` (`kaggle.json` or `access_token`),
 then `make data` (download + SHA-256 manifest), `make notebook` (Jupyter Lab on
 http://localhost:8888) or `make eda` (run `notebooks/01_eda.py` end-to-end). Findings:

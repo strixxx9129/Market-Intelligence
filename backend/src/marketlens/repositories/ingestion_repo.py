@@ -25,11 +25,30 @@ async def get_asset_id(session: AsyncSession, symbol: str) -> int | None:
 
 
 # ---------------------------------------------------------------- pipeline_runs
-async def create_run(session: AsyncSession, pipeline: str, params: dict[str, Any]) -> uuid.UUID:
-    run = PipelineRun(pipeline=pipeline, status=PipelineRunStatus.RUNNING, params=params)
+async def create_run(
+    session: AsyncSession,
+    pipeline: str,
+    params: dict[str, Any],
+    parent_run_id: uuid.UUID | None = None,
+) -> uuid.UUID:
+    run = PipelineRun(
+        pipeline=pipeline,
+        status=PipelineRunStatus.RUNNING,
+        params=params,
+        parent_run_id=parent_run_id,
+    )
     session.add(run)
     await session.flush()
     return run.id
+
+
+async def update_run_meta(session: AsyncSession, run_id: uuid.UUID, **values: Any) -> None:
+    """Attempt number and Celery ids of a task run."""
+    await session.execute(update(PipelineRun).where(PipelineRun.id == run_id).values(**values))
+
+
+async def get_run(session: AsyncSession, run_id: uuid.UUID) -> PipelineRun | None:
+    return await session.get(PipelineRun, run_id)
 
 
 async def finish_run(

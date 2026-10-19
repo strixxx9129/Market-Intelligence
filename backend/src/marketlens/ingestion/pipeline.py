@@ -70,7 +70,12 @@ class IngestionPipeline:
         self.asset = asset
         self.interval = interval
 
-    async def run(self, mode: IngestMode = IngestMode.FULL, force: bool = False) -> IngestionResult:
+    async def run(
+        self,
+        mode: IngestMode = IngestMode.FULL,
+        force: bool = False,
+        parent_run_id: uuid.UUID | None = None,
+    ) -> IngestionResult:
         params = {
             "source": self.connector.name,
             "asset": self.asset,
@@ -79,7 +84,9 @@ class IngestionPipeline:
             "force": force,
         }
         async with self.sessionmaker() as session, session.begin():
-            run_id = await ingestion_repo.create_run(session, PIPELINE_NAME, params)
+            run_id = await ingestion_repo.create_run(
+                session, PIPELINE_NAME, params, parent_run_id=parent_run_id
+            )
         log = logger.bind(run_id=str(run_id), **params)
         log.info("ingest_started")
 

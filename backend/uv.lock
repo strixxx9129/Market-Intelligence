@@ -1359,6 +1359,7 @@ dependencies = [
     { name = "celery" },
     { name = "fastapi" },
     { name = "joblib" },
+    { name = "kaggle" },
     { name = "lightgbm" },
     { name = "mlflow-skinny" },
     { name = "numpy" },
@@ -1387,7 +1388,6 @@ dev = [
 eda = [
     { name = "jupyterlab" },
     { name = "jupytext" },
-    { name = "kaggle" },
     { name = "matplotlib" },
     { name = "scipy" },
     { name = "statsmodels" },
@@ -1401,6 +1401,7 @@ requires-dist = [
     { name = "celery", specifier = ">=5.4" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "joblib", specifier = ">=1.4" },
+    { name = "kaggle", specifier = ">=1.6" },
     { name = "lightgbm", specifier = ">=4.5" },
     { name = "mlflow-skinny", specifier = ">=3.16,<3.17" },
     { name = "numpy", specifier = ">=2.0" },
@@ -1429,7 +1430,6 @@ dev = [
 eda = [
     { name = "jupyterlab", specifier = ">=4.2" },
     { name = "jupytext", specifier = ">=1.16" },
-    { name = "kaggle", specifier = ">=1.6" },
     { name = "matplotlib", specifier = ">=3.9" },
     { name = "scipy", specifier = ">=1.14" },
     { name = "statsmodels", specifier = ">=0.14" },

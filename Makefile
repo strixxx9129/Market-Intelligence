@@ -9,7 +9,7 @@ RUN     := $(COMPOSE) run --rm --no-deps api
 EDA     := $(COMPOSE) --profile eda run --rm --no-deps notebook
 
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate test lint format seed ingest features feature-catalog train report backtest backtest-report logs build data notebook eda
+.PHONY: help up down migrate test lint format seed ingest features feature-catalog train report backtest backtest-report daily weekly runs retry backfill logs build data notebook eda
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -65,6 +65,22 @@ backtest: ## Backtest a model version after costs (MV=<id>, FEE_BPS=10, SLIPPAGE
 
 backtest-report: ## Regenerate docs/backtest-report.md from the latest backtests
 	$(COMPOSE) run --rm api marketlens backtest-report
+
+# ---------------------------------------------------------------- scheduled pipeline (Celery)
+daily: ## Queue the daily chain now (ingest → validate → features → predict); SYNC=1 runs inline
+	$(COMPOSE) run --rm api marketlens admin run-daily $(if $(SYNC),--sync,)
+
+weekly: ## Queue train_candidates → promote_model now; SYNC=1 runs inline
+	$(COMPOSE) run --rm api marketlens admin run-weekly $(if $(SYNC),--sync,)
+
+runs: ## Show recent task runs (one row per attempt)
+	$(COMPOSE) run --rm api marketlens admin runs
+
+retry: ## Replay a failed task run with its original params (RUN=<pipeline_run id>)
+	$(COMPOSE) run --rm api marketlens admin retry $(RUN) $(if $(SYNC),--sync,)
+
+backfill: ## Features + source=backfill predictions for a range (START=YYYY-MM-DD END=YYYY-MM-DD)
+	$(COMPOSE) run --rm api marketlens admin backfill --start $(START) --end $(END) $(if $(SYNC),--sync,)
 
 logs: ## Tail logs of all services
 	$(COMPOSE) logs -f --tail=100

@@ -9,7 +9,7 @@ x-backend: &backend
     target: dev
   image: marketlens-backend:dev
   env_file: ../.env
-  environment:
+  environment: &backend-env
     RAW_DATA_DIR: /data/raw
     REPORTS_DIR: /docs
     MLFLOW_TRACKING_URI: http://mlflow:5000
@@ -18,8 +18,21 @@ x-backend: &backend
     GIT_PYTHON_REFRESH: quiet  # MLflow probes for a git binary; we pass GIT_SHA instead
   volumes:
     - ../backend:/app
-    - ../data:/data:ro  # raw inputs from `make data`; the pipeline only reads them
+    - ../data:/data:ro  # the API and one-off commands only read raw data
     - ../docs:/docs  # generated reports (experiment-report.md)
+
+# Celery workers: same image, plus write access to data/ (daily Kaggle download) and the
+# Kaggle token (read-only). Only workers ever call external sources, never the API (rule 5).
+x-worker: &worker
+  <<: *backend
+  environment:
+    <<: *backend-env
+    KAGGLE_REFRESH: "true"
+  volumes:
+    - ../backend:/app
+    - ../data:/data
+    - ../docs:/docs
+    - ~/.kaggle:/root/.kaggle:ro
   depends_on:
     postgres:
       condition: service_healthy
@@ -129,20 +142,39 @@ services:
       retries: 10
       start_period: 10s
 
-  # Placeholder worker/beat: real Celery processes with no scheduled jobs yet (Phase 2).
+  # Queue separation: short daily jobs and long training never compete for the same worker.
   worker:
-    <<: *backend
-    command: ["celery", "-A", "marketlens.tasks.celery_app", "worker", "--loglevel=INFO", "--concurrency=2"]
+    <<: *worker
+    command: ["celery", "-A", "marketlens.tasks.celery_app", "worker", "--loglevel=INFO",
+              "--queues=ingest,features,predict", "--concurrency=2", "--hostname=daily@%h"]
     healthcheck:
-      test: ["CMD-SHELL", "celery -A marketlens.tasks.celery_app inspect ping -d celery@$$HOSTNAME --timeout 5"]
+      test: ["CMD-SHELL", "celery -A marketlens.tasks.celery_app inspect ping -d daily@$$HOSTNAME --timeout 5"]
       interval: 30s
       timeout: 15s
       retries: 5
       start_period: 20s
 
+  # One training task at a time; a fresh process per task returns its memory (4 GB dev VM).
+  worker-train:
+    <<: *worker
+    command: ["celery", "-A", "marketlens.tasks.celery_app", "worker", "--loglevel=INFO",
+              "--queues=train", "--concurrency=1", "--max-tasks-per-child=1",
+              "--hostname=train@%h"]
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A marketlens.tasks.celery_app inspect ping -d train@$$HOSTNAME --timeout 5"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 20s
+
+  # Exactly ONE beat: it only enqueues jobs on schedule. Its state lives on a volume.
   beat:
     <<: *backend
-    command: ["celery", "-A", "marketlens.tasks.celery_app", "beat", "--loglevel=INFO", "--schedule=/tmp/celerybeat-schedule"]
+    command: ["celery", "-A", "marketlens.tasks.celery_app", "beat", "--loglevel=INFO",
+              "--schedule=/beat/celerybeat-schedule"]
+    volumes:
+      - ../backend:/app
+      - beat_data:/beat
 
   # Jupyter Lab for exploration. Only starts with `make notebook` (profile "eda").
   # No token: the port is published on 127.0.0.1 only, never on the network.
@@ -164,3 +196,4 @@ volumes:
   postgres_data:
   redis_data:
   seaweedfs_data:
+  beat_data:

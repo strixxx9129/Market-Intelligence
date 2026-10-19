@@ -25,6 +25,7 @@ dependencies = [
     "joblib>=1.4",
     "pyarrow>=17",
     "boto3>=1.35",
+    "kaggle>=1.6",
 ]
 
 [project.scripts]
@@ -50,7 +51,6 @@ eda = [
     "matplotlib>=3.9",
     "scipy>=1.14",
     "statsmodels>=0.14",
-    "kaggle>=1.6",
     "jupyterlab>=4.2",
     "jupytext>=1.16",
 ]
@@ -95,7 +95,7 @@ plugins = ["pydantic.mypy"]
 files = ["src"]
 
 [[tool.mypy.overrides]]
-module = ["celery", "celery.*", "pandas", "pandas.*", "sklearn", "sklearn.*", "lightgbm", "lightgbm.*", "mlflow", "mlflow.*", "joblib", "joblib.*", "boto3", "boto3.*", "botocore", "botocore.*", "pyarrow", "pyarrow.*"]
+module = ["celery", "celery.*", "pandas", "pandas.*", "sklearn", "sklearn.*", "lightgbm", "lightgbm.*", "mlflow", "mlflow.*", "joblib", "joblib.*", "boto3", "boto3.*", "botocore", "botocore.*", "pyarrow", "pyarrow.*", "kaggle", "kaggle.*", "asyncpg", "asyncpg.*", "kombu", "kombu.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

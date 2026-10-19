@@ -11,6 +11,7 @@
     marketlens model-versions
     marketlens backtest --model-version 15 --fee-bps 10 --slippage-bps 5
     marketlens backtest-report
+    marketlens admin runs | retry <run-id> | backfill --start --end | run-daily | run-weekly
 
 Commands are thin: they build dependencies and call services, exactly like routers and tasks.
 """
@@ -307,6 +308,110 @@ def backtest_report() -> None:
     path = get_settings().reports_dir / "backtest-report.md"
     path.write_text(content, encoding="utf-8", newline="\n")
     typer.echo(f"wrote {path}")
+
+
+# ---------------------------------------------------------------- admin (Celery pipeline)
+admin = typer.Typer(help="Operate the scheduled pipeline.", no_args_is_help=True)
+app.add_typer(admin, name="admin")
+
+
+def _dispatch(task_name: str, kwargs: dict[str, object], sync: bool) -> None:
+    """--sync runs the task inline in this process (same retries, locks and run rows);
+    otherwise it is queued for the workers."""
+    from marketlens.tasks.celery_app import celery_app
+
+    task = celery_app.tasks[task_name]
+    if sync:
+        result = task.apply(kwargs=kwargs)
+        typer.echo(f"{task_name}: {result.state} {result.result!r}")
+    else:
+        typer.echo(f"queued {task_name} as {task.apply_async(kwargs=kwargs).id}")
+
+
+@admin.command("runs")
+def admin_runs(limit: Annotated[int, typer.Option(help="How many to show.")] = 20) -> None:
+    """Recent task runs (one row per attempt)."""
+    from sqlalchemy import select
+
+    from marketlens.models import PipelineRun
+
+    async def work(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+        async with sessionmaker() as s:
+            runs = (
+                await s.scalars(
+                    select(PipelineRun)
+                    .where(PipelineRun.pipeline.startswith("task:"))
+                    .order_by(PipelineRun.started_at.desc())
+                    .limit(limit)
+                )
+            ).all()
+        for r in runs:
+            typer.echo(
+                f"{r.id}  {r.started_at:%Y-%m-%d %H:%M:%S}  {r.pipeline:<24} attempt {r.attempt}  "
+                f"{r.status.value:<9} {(r.error or '')[:60]}"
+            )
+
+    _run_with_db(work)
+
+
+@admin.command("retry")
+def admin_retry(
+    run_id: Annotated[str, typer.Argument(help="pipeline_runs.id of a failed task run.")],
+    sync: Annotated[bool, typer.Option(help="Run inline instead of queueing.")] = False,
+) -> None:
+    """Replay a failed task run with its original parameters."""
+    import uuid
+
+    from marketlens.services.admin import plan_retry
+    from marketlens.tasks import jobs  # noqa: F401  (registers tasks)
+
+    plan = _run_with_db(lambda sm: plan_retry(sm, uuid.UUID(run_id)))
+    typer.echo(f"retrying {plan.task_name} with {plan.kwargs}")
+    _dispatch(plan.task_name, plan.kwargs, sync)
+
+
+@admin.command("backfill")
+def admin_backfill(
+    start: Annotated[str, typer.Option(help="First as_of day (YYYY-MM-DD).")],
+    end: Annotated[str, typer.Option(help="Last as_of day (YYYY-MM-DD).")],
+    sync: Annotated[bool, typer.Option(help="Run inline instead of queueing.")] = False,
+) -> None:
+    """Rebuild features and write source='backfill' predictions for a date range."""
+    from marketlens.tasks import jobs  # noqa: F401
+
+    _dispatch(
+        "marketlens.backfill",
+        {"start": f"{start}T00:00:00+00:00", "end": f"{end}T00:00:00+00:00"},
+        sync,
+    )
+
+
+@admin.command("run-daily")
+def admin_run_daily(
+    sync: Annotated[bool, typer.Option(help="Run the chain inline.")] = False,
+) -> None:
+    """Run ingest → validate → build_features → predict now."""
+    from marketlens.tasks.jobs import daily_chain
+
+    if sync:
+        result = daily_chain().apply()
+        typer.echo(f"daily chain: {result.state} {result.result!r}")
+    else:
+        typer.echo(f"queued daily chain {daily_chain().apply_async().id}")
+
+
+@admin.command("run-weekly")
+def admin_run_weekly(
+    sync: Annotated[bool, typer.Option(help="Run the chain inline.")] = False,
+) -> None:
+    """Run train_candidates → promote_model now."""
+    from marketlens.tasks.jobs import weekly_chain
+
+    if sync:
+        result = weekly_chain().apply()
+        typer.echo(f"weekly chain: {result.state} {result.result!r}")
+    else:
+        typer.echo(f"queued weekly chain {weekly_chain().apply_async().id}")
 
 
 if __name__ == "__main__":

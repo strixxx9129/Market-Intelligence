@@ -118,7 +118,11 @@ class FeatureBuilder:
         self.sessionmaker = sessionmaker
 
     async def build(
-        self, version: str, asset: str = "BTC-USD", interval: str = "1d"
+        self,
+        version: str,
+        asset: str = "BTC-USD",
+        interval: str = "1d",
+        parent_run_id: uuid.UUID | None = None,
     ) -> BuildResult:
         specs = resolve_set(version)
         definition = set_definition(version, specs)
@@ -126,7 +130,9 @@ class FeatureBuilder:
         params = {"feature_set": version, "asset": asset, "interval": interval}
 
         async with self.sessionmaker() as session, session.begin():
-            run_id = await ingestion_repo.create_run(session, PIPELINE_NAME, params)
+            run_id = await ingestion_repo.create_run(
+                session, PIPELINE_NAME, params, parent_run_id=parent_run_id
+            )
         log = logger.bind(run_id=str(run_id), **params)
         try:
             result = await self._build(run_id, version, asset, interval, specs, definition, digest)

@@ -285,6 +285,67 @@ buy-and-hold and the baseline → [`docs/backtest-report.md`](backtest-report.md
 - Shorts ignore borrow/funding costs; slippage is flat (no market impact model).
 - Stored backtests carry `git_sha a5ed507-dirty` until the phase is committed.
 
-## Later: Scheduling and read API
-Celery Beat schedule for download + incremental ingest + feature build (worker tasks calling the
-same services), read-only `/api/v1/assets`, `/api/v1/prices`, data-quality summary endpoints.
+## Phase 7: Production pipeline with Celery ✅ (2026-10-19)
+
+**Goal:** the daily cycle runs by itself, survives failures, and failed runs can be retried safely.
+
+### Built
+- `tasks/celery_app.py`: Redis broker/backend, JSON only, `acks_late`,
+  `task_reject_on_worker_lost`, prefetch 1, UTC, queues `ingest` / `features` / `train` /
+  `predict` with routes. `tasks/schedules.py`: Beat 00:15 daily chain, 01:00 outcomes,
+  Sun 02:00 weekly chain.
+- `tasks/jobs.py`: `ingest` (Kaggle refresh + incremental ingest), `validate`, `build_features`,
+  `predict`, `evaluate_outcomes`, `train_candidates`, `promote_model`, `backfill`;
+  `daily_chain` / `weekly_chain` with immutable signatures.
+- `tasks/reliable.py`: per-attempt `pipeline_runs` rows, Redis lock, transient-error autoretry
+  (backoff + jitter, max 5), `retrying` status. `core/locks.py` (SET NX EX + Lua release),
+  `core/errors.py` (transient vs permanent), `tasks/runtime.py` (per-task engine, test hooks).
+- Services: `data_health` (validate), `prediction` (production model via MLflow artifact cache,
+  UPSERT; outcomes), `promotion` (gate + baseline fallback + recorded decisions), `admin`
+  (retry with original params). `ingestion/kaggle_download.py` (shared by the worker and
+  `scripts/download_data.py`); connector `refresh()` hook.
+- Migration `3c5d7e9a1b20`: `predictions`, `prediction_outcomes`, `promotion_decisions`;
+  `pipeline_runs.attempt / celery_task_id / root_id / parent_run_id`; status `retrying`.
+- Compose: `worker` (ingest, features, predict), `worker-train` (train, concurrency 1,
+  max-tasks-per-child 1), `beat` (persistent schedule volume); Kaggle token + writable `data/`
+  for workers only. CLI `marketlens admin runs|retry|backfill|run-daily|run-weekly`;
+  `make daily|weekly|runs|retry|backfill`.
+- Tests (533 total, 43 new): fail-twice-then-succeed (attempt rows retrying/retrying/success,
+  same params), real in-process worker retry through a broker, give-up after 5 retries, permanent
+  errors not retried, lock-held → skipped, two simultaneous runs → one executes, lock released only
+  by owner, predict re-run → no duplicates, backfill idempotent and never overwrites live,
+  outcomes scored once, validate stops the chain, admin retry, gate reject (+fallback) and
+  promote; unit tests for gate, error classes, Celery config, routes, retry policy, schedule.
+- ADR 0008.
+
+### Live verification (real stack)
+- Daily chain queued like Beat: the worker downloaded a NEW Kaggle dataset version, ingested
+  1 new candle (2026-10-18), validate passed, features +1 row, predict wrote
+  as_of 2026-10-18 → target 2026-10-19, P(up) 0.5231 by `historical_up_rate` v2 (baseline
+  fallback, recorded in `promotion_decisions`).
+- Two chains queued simultaneously: one stopped at `ingest` (lock held), the other skipped
+  ingest by file hash and still completed. Still exactly 1 prediction.
+- Weekly chain on the train worker: retrained on the new data, staged `random_forest_clf`, gate
+  REJECTED it (mean improvement +0.00021 < 0.001; worse in 14/24 folds > 8). Production stays on
+  the baseline.
+
+### Decisions
+- One `pipeline_runs` row per attempt; Celery's result backend is not a source of truth.
+- Promotion gate defaults: improvement ≥ 0.001 mean fold log loss, ≤ 8 worse folds; baseline
+  fallback when nothing qualifies.
+- Backfilled forecasts are flagged `source='backfill'` (not out-of-sample).
+- `kaggle` moved to runtime dependencies (workers download data).
+
+### Known issues / notes
+- Docker Desktop's WSL backend hung during development and needed a restart; nothing in the
+  project depends on it beyond running the stack.
+- In tests, eager Celery doesn't re-queue retries, so a `deliver()` helper emulates redelivery,
+  plus one real-worker test. A blocking `result.get()` stalls with an in-memory backend shared
+  across tests, so that test waits on `pipeline_runs` instead.
+- Forecasts target the next UTC day; `evaluate_outcomes` scores them the morning after.
+
+## Next: Phase 8: Read API
+Read-only FastAPI endpoints from PostgreSQL/Redis only (rule 5): `/api/v1/assets`,
+`/api/v1/prices`, `/api/v1/forecasts/latest` (model_version, as_of_ts, disclaimer: rule 6),
+`/api/v1/models` (stages + promotion decisions), `/api/v1/backtests`, `/api/v1/pipeline/runs`,
+data-quality summary; Redis caching, pagination, OpenAPI docs.

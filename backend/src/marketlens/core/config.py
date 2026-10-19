@@ -47,6 +47,21 @@ class Settings(BaseSettings):
     s3_region: str = "us-east-1"
     backtest_bucket: str = "backtests"
 
+    # --- Production pipeline (Celery) ---
+    asset_symbol: str = "BTC-USD"
+    feature_set: str = "v1"
+    # Worker downloads the Kaggle dataset before ingesting (needs ~/.kaggle mounted).
+    kaggle_refresh: bool = False
+    # Promotion gate: candidate must beat the best baseline by this much mean fold log loss ...
+    promotion_min_logloss_improvement: float = 0.001
+    # ... and may be worse than it in at most this many folds.
+    promotion_max_worse_folds: int = 8
+    # validate: newest candle older than this many days is a (non-blocking) staleness warning.
+    health_max_staleness_days: int = 3
+    health_gap_lookback_days: int = 30
+    model_cache_dir: Path = Path("/tmp/marketlens-models")
+    lock_prefix: str = "marketlens:lock"
+
     # Comma-separated in the environment: CORS_ORIGINS=http://a,http://b
     cors_origins: Annotated[list[str], NoDecode] = []
 

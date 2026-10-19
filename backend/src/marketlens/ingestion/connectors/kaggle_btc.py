@@ -26,6 +26,7 @@ import pandas as pd
 
 from marketlens.core.config import get_settings
 from marketlens.ingestion.connectors.base import BaseConnector, register_connector
+from marketlens.ingestion.kaggle_download import download_dataset
 from marketlens.ingestion.types import (
     CANDLE_COLUMNS,
     FetchResult,
@@ -35,6 +36,7 @@ from marketlens.ingestion.types import (
 )
 from marketlens.models.data_quality_issue import IssueSeverity
 
+DATASET = "mczielinski/bitcoin-historical-data"
 FILE_NAME = "btcusd_1-min_data.csv"
 RAW_COLUMNS = ["Timestamp", "Open", "High", "Low", "Close", "Volume"]
 VALUE_COLUMNS = ["open", "high", "low", "close", "volume"]
@@ -52,6 +54,16 @@ class KaggleBtcConnector(BaseConnector):
     def __init__(self, csv_path: Path | str | None = None, chunksize: int = 1_000_000) -> None:
         self.csv_path = Path(csv_path) if csv_path else get_settings().raw_data_dir / FILE_NAME
         self.chunksize = chunksize
+
+    def refresh(self) -> dict[str, Any] | None:
+        """Download the latest dataset version from Kaggle into the raw directory."""
+        result = download_dataset(DATASET, self.csv_path.parent)
+        return {
+            "dataset": result.dataset,
+            "licences": result.licences,
+            "downloaded": result.downloaded,
+            "changed_files": result.changed,
+        }
 
     # ------------------------------------------------------------------ fingerprint
     def fingerprint(self) -> SourceFingerprint:

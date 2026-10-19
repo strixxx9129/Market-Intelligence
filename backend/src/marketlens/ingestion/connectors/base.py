@@ -34,6 +34,15 @@ class BaseConnector(ABC):
     #: Asset symbols this source covers; empty means "any symbol".
     supported_assets: ClassVar[tuple[str, ...]] = ()
 
+    def refresh(self) -> dict[str, Any] | None:
+        """Fetch fresh raw data from the remote source, if the connector has one.
+
+        Called by the scheduled ingest task BEFORE `fetch()`; never called by the API.
+        Returns a small summary for the run log, or None when there is nothing to refresh.
+        Raise `TransientError` for failures worth retrying (network).
+        """
+        return None
+
     def fingerprint(self) -> SourceFingerprint | None:
         """Hash of the raw input, used to skip inputs that were already ingested.
 

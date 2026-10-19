@@ -4,7 +4,7 @@
 #   target "eda":  + Jupyter and data-science libs (notebooks/)
 
 # ---------------------------------------------------------------- base (dev/eda tooling)
-FROM python:3.12-slim AS base
+FROM python:3.14-slim AS base
 
 # libgomp1: OpenMP runtime required by LightGBM.
 RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
@@ -31,7 +31,7 @@ COPY src ./src
 RUN uv sync --frozen --no-dev --no-editable
 
 # ---------------------------------------------------------------- prod
-FROM python:3.12-slim AS prod
+FROM python:3.14-slim AS prod
 
 # libgomp1 for LightGBM; tini as PID 1 (forwards SIGTERM so Gunicorn/Celery shut down
 # gracefully, and reaps zombie child processes). Nothing else: no compilers, no uv, no curl.

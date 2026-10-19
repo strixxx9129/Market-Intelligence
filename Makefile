@@ -10,7 +10,7 @@ EDA     := $(COMPOSE) --profile eda run --rm --no-deps notebook
 WEB     := $(COMPOSE) run --rm --no-deps frontend sh -c
 
 .DEFAULT_GOAL := help
-.PHONY: help up down migrate test lint format seed ingest features feature-catalog train report backtest backtest-report daily weekly runs retry backfill loadtest loadtest-ui logs build data notebook eda openapi web web-install web-gen web-test web-build
+.PHONY: changelog backup restore-drill help up down migrate test lint format seed ingest features feature-catalog train report backtest backtest-report daily weekly runs retry backfill loadtest loadtest-ui logs build data notebook eda openapi web web-install web-gen web-test web-build
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-10s %s\n", $$1, $$2}'
@@ -126,3 +126,14 @@ web-test: ## Run the frontend tests (Vitest + Testing Library)
 
 web-build: ## Production build of the website into frontend/dist
 	$(WEB) "corepack enable && pnpm build"
+
+# ------------------------------------------------------------------ backups (docs/runbooks/restore.md)
+backup: ## Dump Postgres to object storage now (local: SeaweedFS; prod: scheduled daily)
+	$(COMPOSE) --profile ops run --rm --build backup backup_postgres.sh
+
+restore-drill: ## Back up, restore into a scratch DB and prove row counts match
+	$(COMPOSE) --profile ops run --rm --build backup restore_drill.sh
+
+# ------------------------------------------------------------------ releases
+changelog: ## Regenerate CHANGELOG.md from Conventional Commits (TAG=vX.Y.Z for the next release)
+	MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR):/app" -w /app orhunp/git-cliff:2.8.0 $(if $(TAG),--tag $(TAG)) -o CHANGELOG.md

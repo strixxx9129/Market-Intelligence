@@ -10,3 +10,7 @@ RUN pip install --no-cache-dir \
 COPY ensure_bucket.py /usr/local/bin/ensure_bucket.py
 
 EXPOSE 5000
+
+# Non-root at runtime (the compose storage-init job only talks to S3, no root needed either).
+RUN useradd --create-home --uid 1000 mlflow
+USER mlflow

@@ -17,6 +17,7 @@ async def test_assets(client: AsyncClient, world: World) -> None:
     assert btc["symbol"] == "BTC-USD" and btc["latest_ts"].startswith("2024-04-29")
     expected = (btc["latest_close"] / btc["prev_close"] - 1) * 100
     assert btc["change_1d_pct"] == pytest.approx(expected, abs=1e-3)
+    assert "CC BY-SA 4.0" in r.json()["attribution"]  # rule 7: licence travels with the data
 
 
 async def test_cursor_pagination_walks_every_candle_once(client: AsyncClient, world: World) -> None:

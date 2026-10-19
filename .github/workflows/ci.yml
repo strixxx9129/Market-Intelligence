@@ -1,13 +1,15 @@
 name: CI
 
+# Pull requests run CI directly. On main, CD (cd.yml) calls this same workflow first, so the
+# code that gets deployed is exactly the code that passed these checks.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_call:
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -78,6 +80,14 @@ jobs:
       - name: Pytest
         run: uv run pytest
 
+      # An untested backup is a hope, not a backup: back up the CI database, restore it into
+      # a scratch database and require identical row counts (docs/runbooks/restore.md).
+      - name: Backup + restore drill
+        run: |
+          uv run alembic upgrade head && uv run marketlens seed-assets
+          docker build -q -f ../infra/backup/Dockerfile -t marketlens-backup ..
+          docker run --rm --network host             -e DATABASE_URL=postgresql://marketlens:marketlens@localhost:5432/marketlens_test             -e DRILL_DATABASE_URL=postgresql://marketlens:marketlens@localhost:5432/marketlens_drill             -e DRILL_ADMIN_URL=postgresql://marketlens:marketlens@localhost:5432/marketlens_test             -e BACKUP_URI=file:///tmp/backups             marketlens-backup restore_drill.sh
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -113,3 +123,25 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  infra:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Workflow syntax, expressions and embedded shell (actionlint bundles shellcheck).
+      - name: actionlint
+        run: docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
+
+      - name: shellcheck scripts
+        run: >
+          docker run --rm -v "$PWD:/repo" -w /repo --entrypoint shellcheck
+          rhysd/actionlint:1.7.7 -s sh scripts/*.sh
+
+      - name: Production image builds, runs as non-root, refuses unsafe config
+        run: |
+          docker build -q --target prod -t marketlens-backend:prod backend
+          test "$(docker run --rm --entrypoint id marketlens-backend:prod -u)" = "1000"
+          if docker run --rm -e ENVIRONMENT=prod marketlens-backend:prod python -c "import marketlens.main"; then
+            echo "prod image started with dev defaults: fail-fast is broken" >&2; exit 1
+          fi

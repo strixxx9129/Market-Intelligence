@@ -1,0 +1,95 @@
+# MarketLens backend on Fly.io: PRODUCTION.
+# One image (ghcr.io/<owner>/marketlens-backend:<git-sha>, passed by CD with --image), four
+# process groups. Secrets (DATABASE_URL, REDIS_URL, JWT_SECRET, S3_*, KAGGLE_API_TOKEN,
+# SENTRY_DSN, MONITORING_WEBHOOK_URL) live in `fly secrets`, never in this file.
+# Staging differs only in names and URLs: keep infra/fly/api.staging.toml in sync.
+
+app = "marketlens-api"
+primary_region = "sin"  # Singapore; Fly Managed Postgres + Upstash available here
+
+[deploy]
+  # RELEASE STEP: runs once in a temporary machine with the NEW image, BEFORE any process is
+  # replaced. If the migration fails, the deploy stops and the old version keeps serving.
+  release_command = "alembic upgrade head"
+  release_command_timeout = "10m"
+  # Machines are updated one at a time, in place (old stopped, then new started), so the
+  # single beat machine is never doubled during a deploy.
+  strategy = "rolling"
+
+[env]
+  ENVIRONMENT = "prod"
+  LOG_JSON = "true"
+  LOG_LEVEL = "INFO"
+  # Fly's edge SETS this header to the real client IP (clients can't forge it): used for
+  # per-IP rate limits. X-Forwarded-For is never trusted. See api/security.py.
+  TRUSTED_CLIENT_IP_HEADER = "Fly-Client-IP"
+  CORS_ORIGINS = "https://marketlens.pages.dev"
+  EXPOSE_DOCS = "true"
+  DB_PGBOUNCER = "true"  # Managed Postgres pooled URL (transaction mode)
+  WEB_CONCURRENCY = "2"
+  METRICS_PORT = "9091"
+  KAGGLE_REFRESH = "true"
+  S3_REGION = "auto"  # Cloudflare R2
+  BACKTEST_BUCKET = "marketlens-prod-backtests"
+  MLFLOW_TRACKING_URI = "http://marketlens-mlflow.flycast"  # private network only
+
+[processes]
+  app = "gunicorn -c gunicorn.conf.py marketlens.main:app"
+  # Short daily jobs (ingest → validate → features → predict) and monitoring.
+  worker = "celery -A marketlens.tasks.celery_app worker --loglevel=INFO --queues=ingest,features,predict,monitoring --concurrency=2 --hostname=daily@%h"
+  # Weekly training: one task at a time, fresh process per task (returns memory).
+  train = "celery -A marketlens.tasks.celery_app worker --loglevel=INFO --queues=train --concurrency=1 --max-tasks-per-child=1 --hostname=train@%h"
+  # The scheduler. EXACTLY ONE machine, ever: two beats would enqueue every job twice
+  # (`fly scale count beat=1`; never autoscaled). Its schedule file is disposable: crontab
+  # entries are recomputed from the clock on start.
+  beat = "celery -A marketlens.tasks.celery_app beat --loglevel=INFO --schedule=/tmp/celerybeat-schedule"
+
+[http_service]
+  processes = ["app"]
+  internal_port = 8000
+  force_https = true  # plain HTTP gets a 301 to HTTPS at the edge
+  auto_stop_machines = "off"  # keep the API warm (forecasts are read at all hours)
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/readyz"  # Postgres + Redis reachable; a failing machine gets no traffic
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "30s"
+
+# Prometheus scraping over the private network (Fly-managed Prometheus + Grafana).
+[[metrics]]
+  port = 9091
+  path = "/metrics"
+  processes = ["app"]
+
+[[metrics]]
+  port = 9808
+  path = "/metrics"
+  processes = ["worker", "train"]
+
+[[vm]]
+  processes = ["app"]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+
+[[vm]]
+  processes = ["worker"]
+  size = "shared-cpu-2x"
+  memory = "2gb"  # the daily Kaggle CSV (7.7 M minutes) is parsed in memory
+
+[[vm]]
+  processes = ["train"]
+  size = "shared-cpu-2x"
+  memory = "2gb"
+
+[[vm]]
+  processes = ["beat"]
+  size = "shared-cpu-1x"
+  memory = "512mb"

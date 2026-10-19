@@ -5,6 +5,7 @@ bound to the running event loop and disposed cleanly on shutdown.
 """
 
 from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import Request
 from sqlalchemy.ext.asyncio import (
@@ -17,12 +18,20 @@ from sqlalchemy.ext.asyncio import (
 from marketlens.core.config import Settings
 
 
+def connect_args(settings: Settings) -> dict[str, Any]:
+    """asyncpg options; behind PgBouncer (transaction mode) prepared statements are off."""
+    if settings.db_pgbouncer:
+        return {"statement_cache_size": 0, "prepared_statement_cache_size": 0}
+    return {}
+
+
 def create_engine(settings: Settings) -> AsyncEngine:
     return create_async_engine(
         settings.database_url,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_pre_ping=True,
+        connect_args=connect_args(settings),
     )
 
 

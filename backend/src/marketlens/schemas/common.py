@@ -8,6 +8,14 @@ DISCLAIMER = (
     "with low accuracy; do not use them to make investment decisions."
 )
 
+# Rule 7: we redistribute derived prices, so the source's licence terms travel with them.
+# CC BY-SA 4.0 allows sharing with ATTRIBUTION, under the SAME licence.
+DATA_ATTRIBUTION = (
+    "Price data: Bitstamp BTC/USD via Kaggle dataset mczielinski/bitcoin-historical-data, "
+    "licensed CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Daily candles "
+    "derived by MarketLens are shared under the same licence."
+)
+
 
 class ErrorDetail(BaseModel):
     code: str

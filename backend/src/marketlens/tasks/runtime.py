@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import NullPool
 
 from marketlens.core.config import get_settings
+from marketlens.db.session import connect_args
 
 
 @dataclass
@@ -43,7 +44,9 @@ def redis_client() -> redis.Redis:
 
 @asynccontextmanager
 async def task_sessionmaker() -> AsyncIterator[async_sessionmaker[AsyncSession]]:
-    engine = create_async_engine(database_url(), poolclass=NullPool)
+    engine = create_async_engine(
+        database_url(), poolclass=NullPool, connect_args=connect_args(get_settings())
+    )
     try:
         yield async_sessionmaker(engine, expire_on_commit=False)
     finally:

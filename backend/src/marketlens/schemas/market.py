@@ -3,7 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from marketlens.schemas.common import DISCLAIMER, PageInfo
+from marketlens.schemas.common import DATA_ATTRIBUTION, DISCLAIMER, PageInfo
 
 
 class AssetOut(BaseModel):
@@ -24,6 +24,7 @@ class AssetOut(BaseModel):
 
 class AssetList(BaseModel):
     data: list[AssetOut]
+    attribution: str = DATA_ATTRIBUTION
 
 
 class Candle(BaseModel):
@@ -40,6 +41,7 @@ class PricePage(BaseModel):
     interval: str
     data: list[Candle]
     page: PageInfo
+    attribution: str = DATA_ATTRIBUTION
 
 
 class FeatureRow(BaseModel):

@@ -101,7 +101,7 @@ services:
       AWS_DEFAULT_REGION: us-east-1
       MLFLOW_S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
       MLFLOW_BUCKET: ${MLFLOW_BUCKET}
-      BUCKETS: ${MLFLOW_BUCKET},${BACKTEST_BUCKET:-backtests}
+      BUCKETS: ${MLFLOW_BUCKET},${BACKTEST_BUCKET:-backtests},marketlens-backups
     depends_on:
       seaweedfs:
         condition: service_healthy
@@ -250,6 +250,29 @@ services:
       interval: 10s
       timeout: 3s
       retries: 10
+
+  # Backups (profile "ops"): `make backup` dumps Postgres to SeaweedFS exactly like production
+  # dumps to R2; `make restore-drill` restores the latest dump into a scratch DB and compares.
+  backup:
+    build:
+      context: ..
+      dockerfile: infra/backup/Dockerfile
+    image: marketlens-backup:dev
+    profiles: ["ops"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      DRILL_DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/marketlens_drill
+      DRILL_ADMIN_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/postgres
+      BACKUP_URI: s3://marketlens-backups/postgres
+      S3_ENDPOINT_URL: http://seaweedfs:8333
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY}
+      AWS_DEFAULT_REGION: us-east-1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
 
   # Load testing (profile "loadtest"): `make loadtest` runs headless against `api-load`, a
   # second API instance with rate limiting OFF so it measures the service, not the limiter.

@@ -1,0 +1,90 @@
+# Production-shaped stack for ONE Linux VM (self-hosting, or a pre-deploy smoke test of the
+# exact images CD pushes). The Fly.io setup (infra/fly/) is the primary target; this file is
+# the host-agnostic equivalent of the same process layout.
+#
+#   IMAGE=ghcr.io/<owner>/marketlens-backend:<sha> DOMAIN=api.example.org \
+#     docker compose -f infra/docker-compose.prod.yml --env-file .env.prod up -d
+#
+# Postgres, Redis and S3 are EXTERNAL (managed services) and come from .env.prod (never
+# committed); the settings validator refuses to start on unsafe values.
+name: marketlens-prod
+
+x-app: &app
+  image: ${IMAGE:?set IMAGE to the image tag CD pushed}
+  env_file: ../.env.prod
+  restart: unless-stopped
+  read_only: true  # the container filesystem is immutable; writable dirs below
+  tmpfs:
+    - /tmp
+  volumes:
+    - raw_data:/data
+  security_opt:
+    - no-new-privileges:true
+  cap_drop: [ALL]
+  logging:
+    driver: json-file
+    options: { max-size: "20m", max-file: "5" }
+
+services:
+  # Release step: run the migration ONCE, before the new app/worker containers start.
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *app
+    command: ["gunicorn", "-c", "gunicorn.conf.py", "marketlens.main:app"]
+    environment:
+      TRUSTED_CLIENT_IP_HEADER: X-Real-IP  # set by Caddy below; the API is not published
+      METRICS_PORT: "9091"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    expose: ["8000"]
+
+  # One worker container PER QUEUE GROUP, scaled independently.
+  worker:
+    <<: *app
+    command: ["celery", "-A", "marketlens.tasks.celery_app", "worker", "--loglevel=INFO",
+              "--queues=ingest,features,predict,monitoring", "--concurrency=2",
+              "--hostname=daily@%h"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker-train:
+    <<: *app
+    command: ["celery", "-A", "marketlens.tasks.celery_app", "worker", "--loglevel=INFO",
+              "--queues=train", "--concurrency=1", "--max-tasks-per-child=1",
+              "--hostname=train@%h"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # EXACTLY ONE scheduler. Never `--scale beat=N`: two beats enqueue every job twice.
+  beat:
+    <<: *app
+    command: ["celery", "-A", "marketlens.tasks.celery_app", "beat", "--loglevel=INFO",
+              "--schedule=/tmp/celerybeat-schedule"]
+    deploy:
+      replicas: 1
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  # HTTPS termination with automatic Let's Encrypt certificates; HTTP → HTTPS redirect.
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN to the API hostname}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [api]
+
+volumes:
+  raw_data:
+  caddy_data:

@@ -488,5 +488,51 @@ def admin_run_weekly(
         typer.echo(f"queued weekly chain {weekly_chain().apply_async().id}")
 
 
+@admin.command("promote")
+def admin_promote(
+    model_version: Annotated[int, typer.Argument(help="model_versions.id to put in production.")],
+    force: Annotated[bool, typer.Option(help="Override a failing promotion gate.")] = False,
+    reason: Annotated[str | None, typer.Option(help="Required with --force (audited).")] = None,
+) -> None:
+    """Promote (or roll back to) a model version through the promotion gate.
+
+    The gate is the same one the weekly job uses; --force records an audited 'manual'
+    decision. Runbook: docs/runbooks/model-rollback.md.
+    """
+    from marketlens.core.errors import ServiceError
+    from marketlens.services.promotion import PromotionService
+
+    async def work(sessionmaker: async_sessionmaker[AsyncSession]) -> dict[str, object]:
+        return await PromotionService(sessionmaker).promote_version(
+            model_version, force, reason, actor="cli"
+        )
+
+    try:
+        result = _run_with_db(work)
+    except ServiceError as exc:
+        raise typer.BadParameter(exc.message) from exc
+    typer.echo(f"{result['decision']}: production is now model version {result['production']}")
+    for line in result["reasons"]:  # type: ignore[attr-defined]
+        typer.echo(f"  - {line}")
+
+
+@admin.command("flush-cache")
+def admin_flush_cache(
+    namespace: Annotated[
+        list[str] | None, typer.Option(help="Namespace(s) to flush; default: all.")
+    ] = None,
+) -> None:
+    """Invalidate cached API responses (O(1) version bump; old keys expire on their own).
+    Runbook: docs/runbooks/cache-flush.md."""
+    from marketlens.core.cache import TTL, invalidate_namespaces
+
+    names = namespace or sorted(TTL)
+    unknown = sorted(set(names) - set(TTL))
+    if unknown:
+        raise typer.BadParameter(f"unknown namespace(s) {unknown}; known: {sorted(TTL)}")
+    asyncio.run(invalidate_namespaces(*names))
+    typer.echo(f"invalidated: {', '.join(names)}")
+
+
 if __name__ == "__main__":
     app()

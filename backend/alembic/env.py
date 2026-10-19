@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 import marketlens.models  # noqa: F401  (registers every model on Base.metadata)
 from marketlens.core.config import get_settings
 from marketlens.db.base import Base
+from marketlens.db.session import connect_args
 
 config = context.config
 if config.config_file_name is not None and config.attributes.get("configure_logger", True):
@@ -50,6 +51,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args(get_settings()),
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

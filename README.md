@@ -1,102 +1,186 @@
 # MarketLens
 
-Open-source **Market Intelligence & ML Monitoring Platform**. It ingests historical Bitcoin (later
-stocks) data, builds leakage-free features, trains and compares ML models with walk-forward
-validation, backtests strategies after costs, monitors data/model health, and serves everything
-through a public FastAPI API and a React website.
+[![CI](https://github.com/strixxx9129/Market-Intelligence/actions/workflows/ci.yml/badge.svg)](https://github.com/strixxx9129/Market-Intelligence/actions/workflows/ci.yml)
+[![CD](https://github.com/strixxx9129/Market-Intelligence/actions/workflows/cd.yml/badge.svg)](https://github.com/strixxx9129/Market-Intelligence/actions/workflows/cd.yml)
+[![CodeQL](https://github.com/strixxx9129/Market-Intelligence/actions/workflows/codeql.yml/badge.svg)](https://github.com/strixxx9129/Market-Intelligence/actions/workflows/codeql.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-> **Educational software, not financial advice.** Nothing MarketLens produces is a
-> recommendation to buy or sell anything.
+Open-source **Market Intelligence & ML Monitoring Platform**. It ingests historical Bitcoin data,
+builds leakage-free features, trains and compares ML models with walk-forward validation,
+backtests strategies after costs, monitors data and model health, and serves everything through a
+public API and a website. New data connectors, features and models plug into registries.
 
-## Quick start
+> **Educational software, not financial advice.** MarketLens shows estimated probabilities next to
+> their track record and simple baselines. Nothing it produces is a recommendation to buy or sell.
 
-Requirements: **Docker** (with Compose v2) and **make**.
-On Windows: `winget install ezwinports.make`, or run the commands from Git Bash / WSL.
+**The honest headline:** after 24 walk-forward folds (2013–2026), no ML model beats a simple
+"historical share of up days" baseline at predicting Bitcoin's next-day direction, so production
+serves the baseline and says so. That's the point of the project: measure honestly, publish the
+result, and make it easy for anyone to try to do better.
+
+| Overview and forecast | Model leaderboard vs baseline |
+|---|---|
+| [![Asset page](docs/images/asset.png)](docs/images/asset.png) | [![Models](docs/images/models.png)](docs/images/models.png) |
+| **Backtest after costs vs buy-and-hold** | **System status and monitoring** |
+| [![Backtest](docs/images/backtest.png)](docs/images/backtest.png) | [![Status](docs/images/status.png)](docs/images/status.png) |
+
+## What's inside
+
+- **Data:** idempotent ingestion with connector plugins, validation and quarantine; raw file
+  hashes; UTC everywhere.
+- **Features:** a versioned feature store; every feature passes a truncation test (no look-ahead).
+  See the [feature catalog](docs/feature-catalog.md).
+- **Models:** walk-forward validation with a gap, baselines first, MLflow tracking, immutable model
+  versions, and a promotion gate. See the [experiment report](docs/experiment-report.md).
+- **Backtests:** threshold chosen on earlier folds only, fees and slippage, compared with buy-and-hold
+  and the baseline. See the [backtest report](docs/backtest-report.md).
+- **Pipeline:** Celery with retries, locks and a per-attempt audit trail; Beat schedules the daily
+  forecast and weekly retraining.
+- **API:** versioned, cached, rate limited; JWT and API keys; every forecast carries
+  `model_version`, `as_of_ts` and a disclaimer.
+- **Monitoring:** freshness, PSI/KS drift, live log loss vs expectations, deduplicated alerts,
+  Prometheus, Grafana and Sentry.
+- **Website:** charts, forecast panel with track record, leaderboard, **model cards**
+  (`/models/<id>` on the site, `GET /api/v1/models/{id}` in the API), backtests and status.
+- **Operations:** CD to Fly.io and Cloudflare Pages, daily backups with a tested restore drill,
+  and runbooks.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  user([Browser]) -->|HTTPS| pages[Cloudflare Pages<br/>React SPA]
+  user -->|HTTPS, CORS| edge[Fly edge proxy<br/>TLS, HTTP→HTTPS]
+  edge --> api[api<br/>Gunicorn + Uvicorn<br/>FastAPI]
+
+  subgraph fly [Fly.io private network]
+    api
+    worker[worker<br/>ingest · features · predict · monitoring]
+    train[worker-train<br/>weekly training]
+    beat[beat<br/>exactly one scheduler]
+    mlflow[MLflow<br/>private, no public IP]
+    backup[backup machine<br/>daily pg_dump]
+  end
+
+  beat -->|enqueue| redis[(Upstash Redis<br/>broker + cache + locks)]
+  api <--> redis
+  worker <--> redis
+  train <--> redis
+  api -->|reads only| pg[(Managed Postgres)]
+  worker --> pg
+  train --> pg
+  train -->|runs, metrics| mlflow
+  mlflow --> pg
+  mlflow --> r2[(Cloudflare R2<br/>artifacts · backtests · backups)]
+  worker --> r2
+  backup -->|pg_dump| pg
+  backup --> r2
+  worker -->|daily download| kaggle[(Kaggle dataset)]
+```
+
+The API never trains models or calls external sources during a request; it only reads
+precomputed rows from PostgreSQL and Redis. Code layering is routers (HTTP only) → services
+(logic) → repositories (SQL only); Celery tasks call the same services. Each design decision
+has an ADR in [docs/adr/](docs/adr/).
+
+## Quick start (local)
+
+Requirements: **Docker** (Compose v2) and **make**. On Windows: `winget install ezwinports.make`,
+or use Git Bash / WSL.
 
 ```bash
 cp .env.example .env
-make up        # build + start the stack, waits until every service is healthy
-make migrate   # create the database schema
-make test      # run the test suite inside the api container
+make up          # build and start everything (waits until healthy)
+make migrate     # create the schema
+make seed        # reference assets
+make data        # download the Kaggle dataset (needs ~/.kaggle token)
+make daily SYNC=1    # ingest → validate → features → predict
+make weekly SYNC=1   # train candidates → promotion gate
 ```
-
-Then open:
 
 | Service | URL |
 |---|---|
 | **Website** | http://localhost:5173 |
 | API docs (Swagger) | http://localhost:8000/docs |
-| Liveness / readiness | http://localhost:8000/healthz · http://localhost:8000/readyz |
 | MLflow | http://localhost:5000 |
-| S3 API (SeaweedFS) | http://localhost:8333 |
-| Grafana (user `admin`, password `GRAFANA_ADMIN_PASSWORD`) | http://localhost:3001 |
+| Grafana (`admin` / `GRAFANA_ADMIN_PASSWORD`) | http://localhost:3001 |
 | Prometheus | http://localhost:9090 |
 
-Other targets: `make seed` (reference assets), `make ingest` (raw data → `market_prices`;
-`MODE=full|incremental`, `FORCE=1`), `make features` (build feature set `v1`), `make feature-catalog`,
-`make train TASK=classification|regression`, `make report`, `make lint`, `make format`, `make logs`,
-`make down`, `make help`. Features: [docs/feature-catalog.md](docs/feature-catalog.md).
-Models: [docs/experiment-report.md](docs/experiment-report.md) (walk-forward, vs baselines).
-Backtests: `make backtest MV=<model version id>`, `make backtest-report` → [docs/backtest-report.md](docs/backtest-report.md)
-(hypothetical, after costs, vs buy-and-hold; not financial advice).
+**Done means `make lint` and `make test` pass.** They cover the backend (ruff, mypy strict,
+pytest) and the frontend (ESLint, Prettier, tsc, Vitest). `make help` lists every target.
 
-Scheduled pipeline (Phase 7): `make up` starts `worker`, `worker-train` and `beat`. Beat runs the daily
-chain at 00:15 UTC (Kaggle download → ingest → validate → features → predict), scores forecasts at
-01:00 and retrains on Sundays 02:00 behind a promotion gate. `make daily` / `make weekly` run them now,
-`make runs` shows attempts, `make retry RUN=<id>` replays a failed run, `make backfill START=… END=…`.
+<details>
+<summary>Everyday commands</summary>
 
-Public API (Phase 8): interactive docs at http://localhost:8000/docs. Anonymous reads are limited
-to 60/min per IP; register (`POST /api/v1/auth/register`), log in, then create a key under
+| Area | Commands |
+|---|---|
+| Data | `make ingest MODE=full\|incremental`, `make features`, `make feature-catalog` |
+| Models | `make train TASK=classification`, `make report`, `make backtest MV=<id>`, `make backtest-report` |
+| Pipeline | `make daily`, `make weekly`, `make runs`, `make retry RUN=<id>`, `make backfill START=… END=…` |
+| API | `make loadtest`, `make openapi` (export the schema for the frontend) |
+| Website | `make web`, `make web-gen`, `make web-test`, `make web-build` |
+| Ops | `make backup`, `make restore-drill`, `make changelog TAG=vX.Y.Z` |
+| EDA | `make notebook`, `make eda` ([findings](docs/eda-report.md)) |
+
+API access: anonymous reads are limited to 60/min per IP. Register, then create a key under
 `/api/v1/me/api-keys` and send it as `X-API-Key` (1000/min). First admin:
 `docker compose -f infra/docker-compose.yml --env-file .env run --rm api marketlens admin create-user --email you@example.org --role admin`.
-Load test: `make loadtest` (Locust, headless) or `make loadtest-ui` (http://localhost:8089).
+</details>
 
-Website (Phase 10): `make up` also starts the Vite dev server at http://localhost:5173 (`make web`
-starts just the API and the site). Pages: market overview, asset charts and forecast, model
-leaderboard and model cards, backtests, system status, account. The TypeScript API client is
-generated from the backend: after an API change run `make openapi` then `make web-gen` (CI checks
-both). `make web-test`, `make web-build`; details in [frontend/README.md](frontend/README.md).
+## Deployment
 
-Monitoring (Phase 9): Beat checks freshness hourly, input/prediction drift (PSI + KS vs the
-model's training data) at 00:45 and live log loss/Brier/accuracy at 01:15. Results go to
-`monitoring_metrics`. Breaches go to `monitoring_alerts` and to `MONITORING_WEBHOOK_URL`
-(Discord or Slack), at most once per 24 h per alert. Grafana's "MarketLens overview" dashboard
-shows API latency, Celery tasks and data/model health. Set `SENTRY_DSN` to enable Sentry.
-See [ADR 0010](docs/adr/0010-monitoring.md) for how to read PSI.
+Every merge to `main` runs [CD](.github/workflows/cd.yml):
 
-Data exploration (Phase 2): put a Kaggle token in `~/.kaggle/` (`kaggle.json` or `access_token`),
-then `make data` (download + SHA-256 manifest), `make notebook` (Jupyter Lab on
-http://localhost:8888) or `make eda` (run `notebooks/01_eda.py` end-to-end). Findings:
-[docs/eda-report.md](docs/eda-report.md).
+1. Tests.
+2. Images pushed to GHCR, tagged with the commit SHA.
+3. **Staging:** migrations run as Fly's release step, then a rolling deploy, then the site deploy
+   to Pages, then a smoke test.
+4. **Production:** the same steps, after a required approval.
 
-## Architecture (Phase 1)
+Setup is in [docs/runbooks/first-deploy.md](docs/runbooks/first-deploy.md) and the design is in
+[ADR 0012](docs/adr/0012-deployment.md). Production config refuses to start if any secret is
+missing or unsafe. `infra/docker-compose.prod.yml` runs the same images on a single VM
+behind Caddy.
 
-```
-            ┌────────────┐     ┌────────────┐
- browser ──►│  api       │────►│ postgres16 │◄── mlflow (tracking metadata)
-            │  FastAPI   │────►│ redis 7    │◄── worker / beat (Celery)
-            └────────────┘     └────────────┘
-                                seaweedfs (S3) ◄── mlflow (model artifacts)
-```
+Runbooks: [first deploy](docs/runbooks/first-deploy.md) ·
+[restore a backup](docs/runbooks/restore.md) ·
+[failed ingestion](docs/runbooks/failed-ingestion.md) ·
+[model rollback](docs/runbooks/model-rollback.md) ·
+[cache flush](docs/runbooks/cache-flush.md).
 
-A modular monolith in one monorepo; see [ADR 0001](docs/adr/0001-monorepo-modular-monolith.md).
-Backend layering: routers (HTTP only) → services (logic) → repositories (SQL only).
+## Security
+
+- HTTPS only, with HSTS.
+- Strict CORS: an explicit `https://` origin list.
+- CSP and security headers on both the API and the site.
+- Per-IP rate limits that use the platform's unforgeable client-IP header.
+- Non-root, minimal images, with SBOM and provenance.
+- Secrets live only in the platform secret stores.
+- Dependabot and CodeQL.
+- Reporting a vulnerability: please open a private
+  [security advisory](https://github.com/strixxx9129/Market-Intelligence/security/advisories/new),
+  not a public issue.
+
+## Data and licences
+
+Code: [Apache-2.0](LICENSE). Price data: Bitstamp BTC/USD via the Kaggle dataset
+[mczielinski/bitcoin-historical-data](https://www.kaggle.com/datasets/mczielinski/bitcoin-historical-data),
+licensed [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/). The daily candles
+MarketLens derives from it are shared under the same licence; the API and website show this
+attribution. Raw data is never committed.
 
 ## Repository layout
 
 ```
-backend/   Python package `marketlens` (src layout), tests, Alembic migrations
-frontend/  React + TypeScript (later phase)
-infra/     docker-compose and service config
-docs/      PROGRESS.md and ADRs
+backend/   FastAPI app, Celery tasks, ML (package `marketlens`), Alembic, tests
+frontend/  React + TypeScript website (Vite, TanStack Query, Lightweight Charts)
+infra/     docker-compose (dev and prod), Fly.io configs, Prometheus/Grafana, backup image
+scripts/   backup/restore/drill, OpenAPI export, smoke test, feature catalog
+docs/      PROGRESS, ADRs, runbooks, reports, feature catalog
 ```
-
-## Local development without Docker (optional)
-
-Install [uv](https://docs.astral.sh/uv/), then in `backend/`: `uv sync`, and point
-`DATABASE_URL` / `REDIS_URL` at `localhost`. Enable git hooks with
-`uv tool install pre-commit && pre-commit install`.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Licensed under [Apache-2.0](LICENSE).
+New features, models and connectors are welcome; they plug in without touching the core. See
+[CONTRIBUTING.md](CONTRIBUTING.md) and the website's Contribute page. Progress and decisions:
+[docs/PROGRESS.md](docs/PROGRESS.md), [CHANGELOG.md](CHANGELOG.md).

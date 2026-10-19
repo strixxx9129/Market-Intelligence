@@ -561,15 +561,126 @@ buy-and-hold and the baseline → [`docs/backtest-report.md`](backtest-report.md
 - Docker Desktop hung mid-phase (WSL backend). Frontend checks ran on host Node 24 in the
   meantime, then all were re-run in the container.
 
-## Next: Phase 11 (to be defined)
+## Phase 11: Deployment ✅ (2026-10-19, code complete; first live deploy needs the accounts)
+
+**Goal:** a public URL, automated deploys, backups, and a repo ready for launch.
+
+### Built
+- **Production image** (`backend/Dockerfile`, target `prod`):
+  - builder stage with a non-editable uv venv; runtime on python:3.12-slim with only
+    libgomp1 + tini;
+  - no uv, pip, gcc or curl; runs as uid 1000; `HEALTHCHECK`; 1.27 GB (dev image: 2.44 GB).
+- **Gunicorn** (`gunicorn.conf.py`) with Uvicorn workers:
+  - `WEB_CONCURRENCY`, `max_requests` with jitter, 30 s timeout, 20 s graceful drain;
+  - Prometheus multiprocess (`child_exit`), metrics on the private `METRICS_PORT`.
+  - New deps: gunicorn 26.2, uvicorn-worker 0.4.
+- **Hosting config:**
+  - `infra/fly/api.{staging,production}.toml`: processes `app`/`worker`/`train`/`beat`,
+    `release_command = "alembic upgrade head"`, `force_https`, `/readyz` checks, private
+    `[[metrics]]`, VM sizes;
+  - `infra/fly/mlflow.*.toml`: private MLflow via flycast; the MLflow image now runs
+    non-root;
+  - `infra/docker-compose.prod.yml` + `infra/caddy/Caddyfile`: the same layout on one VM
+    (one-shot migrate service, a worker per queue group, one beat, read-only filesystem,
+    `cap_drop ALL`, automatic HTTPS).
+- **Fail-fast settings:**
+  - `ENVIRONMENT` gains `staging`; `deployment_problems()` refuses to start any deployed
+    process and lists every problem: JWT secret, localhost/dev-password DB, Redis, CORS
+    (empty, `*` or http), S3, MLflow, `GIT_SHA`, DEBUG;
+  - workers also require Kaggle credentials when `KAGGLE_REFRESH=true`.
+- **Edge security** (`api/security.py`):
+  - `ClientIPMiddleware` trusts only `TRUSTED_CLIENT_IP_HEADER` (Fly-Client-IP), never
+    X-Forwarded-For;
+  - `SecurityHeadersMiddleware`: HSTS when deployed, nosniff, DENY, `no-referrer`,
+    Permissions-Policy, COOP, CSP `default-src 'none'` (relaxed only for `/docs`);
+  - `EXPOSE_DOCS` toggle; `/metrics` removed from the public app when deployed;
+  - `DB_PGBOUNCER` setting for poolers;
+  - `/healthz` reports `version` + `git_sha`;
+  - CC BY-SA attribution in asset and price responses and the website footer.
+- **Website hardening:**
+  - `dist/_headers` generated at build time (CSP with `connect-src` = the environment's
+    API, HSTS, immutable asset caching);
+  - `_redirects` SPA fallback; the theme script moved out of the HTML (no inline scripts).
+- **Backups:**
+  - `infra/backup/Dockerfile` (postgres-alpine + aws-cli, non-root);
+  - `scripts/backup_postgres.sh`: pg_dump -Fc, archive check, sha256, R2/S3 or `file://`,
+    30 daily + 12 monthly retention, prune guard;
+  - `restore_postgres.sh`: checksum verified, `--exit-on-error`, requires
+    `RESTORE_CONFIRM=yes`;
+  - `restore_drill.sh`: backup, restore, exact row counts and Alembic revision compared;
+  - `make backup` / `make restore-drill` (compose profile `ops`); the drill runs in CI.
+- **Incident CLI:** `marketlens admin promote <id> [--force --reason]` and
+  `marketlens admin flush-cache [--namespace]`.
+- **Workflows:**
+  - `ci.yml`: now `workflow_call`; new `infra` job (actionlint, shellcheck, prod image is
+    non-root and refuses dev config); backup drill step;
+  - `cd.yml`: CI → three SHA-tagged GHCR images with provenance and SBOM → staging →
+    production;
+  - `deploy.yml`: reusable per environment (MLflow, API with release step, `beat=1`, backup
+    machine image, Pages build and deploy, smoke test);
+  - `codeql.yml`: Python, TypeScript, Actions, security-extended, weekly;
+  - `release.yml`: git-cliff notes on `v*` tags;
+  - `dependabot.yml`: uv, npm, Actions and Docker, grouped weekly.
+- `scripts/smoke_test.sh`: health, readiness, status, disclaimer, HTTP→HTTPS, HSTS/CSP,
+  metrics not public, site, deep link, deployed SHA.
+- `cliff.toml` + `make changelog`.
+- **Docs:**
+  - README rewritten: badges, honest headline, screenshots, Mermaid architecture, quick start,
+    links to reports and model cards, deployment, security, licences;
+  - `SECURITY.md`;
+  - runbooks: first-deploy, restore, failed-ingestion, model-rollback, cache-flush;
+  - ADR 0012.
+- **Tests:** backend 607, frontend 30 (new: deployed-config validation for each unsafe value, client-IP
+  trust including forged XFF, security headers and docs CSP, docs toggle, Kaggle credential
+  detection, healthz version, incident CLI).
+
+### Verified locally
+- The prod image runs as uid 1000 under tini with 2 Gunicorn workers:
+  - readiness OK; HSTS and CSP present; CORS allows only the staging origin;
+  - `/metrics` 404 publicly, aggregated across workers on :9091;
+  - per-client-IP rate limits work, and a forged X-Forwarded-For is ignored.
+- Same image, other processes: `alembic current` (release step), a Celery worker (ping +
+  metrics server) and beat all start.
+- Fail-fast:
+  - the local `.env` copied as-is refuses to start (dev DB password);
+  - `CORS_ORIGINS=*` refused;
+  - a worker without Kaggle credentials refused.
+- **Restore drill on the real dev DB through SeaweedFS (S3):** 23 tables with identical row
+  counts (107,555 oos_predictions, 5,405 candles), revision `f3fa6aae83db`, about 10 s.
+  Also verified:
+  - retention pruning, with non-date folders left alone;
+  - a tampered dump is rejected by the checksum;
+  - an unreachable DB exits 1;
+  - restore without confirmation is refused.
+- actionlint and shellcheck are clean; git-cliff renders 0.1.0 from the ten phase commits.
+
+### Decisions
+- Fly.io + Managed Postgres + Upstash + R2 + Pages; staging and production with the same
+  shape (ADR 0012).
+- Migrations run only as the release step; migrations must stay backward-compatible.
+- Exactly one beat, enforced on every deploy.
+- Client IP from the platform header only; metrics on a private port; docs public by default
+  (`EXPOSE_DOCS`).
+- Our own daily dumps on top of provider PITR, with a restore drill in CI.
+
+### Known issues / notes
+- Not yet live: creating the Fly, Cloudflare and Upstash accounts, secrets, GitHub
+  environments and GHCR visibility is a one-time manual step (docs/runbooks/first-deploy.md).
+  CD can't succeed until then.
+- `superfly/flyctl-actions` is used from its default branch (no tags). Actions are pinned by
+  major version, not SHA.
+- The pg_dump major version must be ≥ the managed server's (`PG_MAJOR` build arg, default 16).
+- The refresh token is still in localStorage (httpOnly cookie is planned).
+
+## Next: Phase 12 (to be defined)
 Candidates:
-- alert evaluation and delivery (rules are stored already);
-- stock connectors (second asset class);
-- production hardening: httpOnly refresh cookie, production build served by nginx/CDN, CSP
-  headers, deploy pipeline.
+- first live deploy and launch checklist (custom domain, uptime monitor);
+- alert evaluation and delivery;
+- stock connectors;
+- httpOnly refresh cookie.
 
 ## Later
 - Alert evaluation task after `predict` + notification channel (e-mail/webhook).
-- Auth hardening: refresh token in an httpOnly SameSite cookie (+ CSRF), CSP headers.
+- Auth hardening: refresh token in an httpOnly SameSite cookie (+ CSRF); pin Actions by SHA.
 - Monitoring follow-ups: grouped alerts per model, metrics retention, Prometheus alert rules
   for API/worker SLOs.

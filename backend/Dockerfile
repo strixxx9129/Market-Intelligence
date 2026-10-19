@@ -1,6 +1,9 @@
-# Multi-stage image for the API, Celery worker and beat.
-#   target "prod": runtime deps only
+# Multi-stage image for the API, Celery workers and beat.
+#   target "prod": the production image (runtime deps only, non-root, no build tools, no uv)
 #   target "dev":  + pytest/ruff/mypy, used by docker compose and `make test` / `make lint`
+#   target "eda":  + Jupyter and data-science libs (notebooks/)
+
+# ---------------------------------------------------------------- base (dev/eda tooling)
 FROM python:3.12-slim AS base
 
 # libgomp1: OpenMP runtime required by LightGBM.
@@ -18,17 +21,48 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-# ---------------------------------------------------------------- prod
-FROM base AS prod
+# ---------------------------------------------------------------- builder (prod venv)
+FROM base AS builder
 COPY pyproject.toml uv.lock ./
-# Install dependencies first (cached layer), then the project itself.
+# Dependencies first: this layer is cached until uv.lock changes.
 RUN uv sync --frozen --no-dev --no-install-project
-COPY . .
-RUN uv sync --frozen --no-dev
-RUN useradd --create-home --uid 1000 app
+COPY src ./src
+# --no-editable: the package is COPIED into the venv, so the runtime image needs no source tree.
+RUN uv sync --frozen --no-dev --no-editable
+
+# ---------------------------------------------------------------- prod
+FROM python:3.12-slim AS prod
+
+# libgomp1 for LightGBM; tini as PID 1 (forwards SIGTERM so Gunicorn/Celery shut down
+# gracefully, and reaps zombie child processes). Nothing else: no compilers, no uv, no curl.
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 tini \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m pip uninstall -y pip \
+    && useradd --create-home --uid 1000 app \
+    && mkdir -p /data/raw /tmp/prometheus \
+    && chown -R app:app /data /tmp/prometheus
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    ENVIRONMENT=prod \
+    RAW_DATA_DIR=/data/raw \
+    PROMETHEUS_MULTIPROC_DIR=/tmp/prometheus
+
+COPY --from=builder /opt/venv /opt/venv
+WORKDIR /app
+# Only what runs: migrations (release step) and the Gunicorn config.
+COPY alembic.ini gunicorn.conf.py ./
+COPY alembic ./alembic
+
 USER app
 EXPOSE 8000
-CMD ["uvicorn", "marketlens.main:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+ENTRYPOINT ["tini", "--"]
+# The same image runs every process; the platform overrides CMD per process group:
+#   celery -A marketlens.tasks.celery_app worker --queues=... | beat | alembic upgrade head
+CMD ["gunicorn", "-c", "gunicorn.conf.py", "marketlens.main:app"]
 
 # ---------------------------------------------------------------- dev
 FROM base AS dev

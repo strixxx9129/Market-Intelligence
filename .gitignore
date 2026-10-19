@@ -33,3 +33,4 @@ Thumbs.db
 
 # Notebooks: the percent-format .py file is the source of truth; executed .ipynb are local.
 notebooks/*.ipynb
+.env.prod

@@ -5,10 +5,18 @@ raw path: every distinct label value is a separate time series, and raw paths (o
 symbol, id or scanner probe) would grow without bound until Prometheus runs out of memory.
 """
 
+import os
 import time
 
 from fastapi import Request
-from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    CollectorRegistry,
+    Counter,
+    Histogram,
+    generate_latest,
+    multiprocess,
+)
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.responses import Response
 from starlette.types import Scope
@@ -64,6 +72,12 @@ class PrometheusMiddleware(BaseHTTPMiddleware):
 
 
 def metrics_response() -> Response:
+    """Under Gunicorn (PROMETHEUS_MULTIPROC_DIR set), merge every worker's samples; otherwise
+    a scrape would only see the one worker process that happened to answer it."""
+    if os.environ.get("PROMETHEUS_MULTIPROC_DIR"):
+        registry = CollectorRegistry()
+        multiprocess.MultiProcessCollector(registry)  # type: ignore[no-untyped-call]
+        return Response(generate_latest(registry), media_type=CONTENT_TYPE_LATEST)
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

@@ -1,0 +1,91 @@
+# Reusable deploy of ONE environment (called by cd.yml for staging, then production).
+# Same steps for both, so staging really rehearses production.
+#
+# GitHub environment settings (Settings → Environments; see docs/runbooks/first-deploy.md):
+#   secrets: FLY_API_TOKEN, CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID
+#   vars:    API_URL, SITE_URL, PAGES_PROJECT
+#   production: required reviewers + deployment branch "main" only
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment: { type: string, required: true }  # staging | production
+      backend_image: { type: string, required: true }
+      mlflow_image: { type: string, required: true }
+      backup_image: { type: string, required: true }
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ vars.SITE_URL }}
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      API_APP: ${{ inputs.environment == 'production' && 'marketlens-api' || 'marketlens-api-staging' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fly publishes this action from its default branch only (no release tags to pin).
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # MLflow first: the API's workers log training runs to it.
+      - name: Deploy MLflow (private)
+        run: >
+          flyctl deploy --config infra/fly/mlflow.${{ inputs.environment }}.toml
+          --image ${{ inputs.mlflow_image }} --ha=false --wait-timeout 10m
+
+      # The release_command in the fly.toml runs `alembic upgrade head` in a one-off machine
+      # with the NEW image before any process is replaced; a failed migration aborts here and
+      # the previous release keeps serving.
+      - name: Deploy API, workers and beat (migrations run as the release step)
+        run: >
+          flyctl deploy --config infra/fly/api.${{ inputs.environment }}.toml
+          --image ${{ inputs.backend_image }}
+          --env GIT_SHA=${{ github.sha }}
+          --ha=false --wait-timeout 15m
+
+      - name: Enforce exactly one beat
+        run: flyctl scale count beat=1 --app "$API_APP" --yes
+
+      - name: Point the scheduled backup machine at the new image
+        run: |
+          id=$(flyctl machines list --app "$API_APP" --json \
+            | jq -r '.[] | select(.config.metadata.role == "backup") | .id' | head -n 1)
+          if [ -z "$id" ]; then
+            echo "::warning::no backup machine yet: create it once (docs/runbooks/first-deploy.md)"
+          else
+            flyctl machine update "$id" --app "$API_APP" --image ${{ inputs.backup_image }} \
+              --schedule daily --skip-start --yes
+          fi
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: frontend/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Build website for ${{ inputs.environment }}
+        working-directory: frontend
+        env:
+          VITE_API_URL: ${{ vars.API_URL }}
+          VITE_GITHUB_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: pnpm install --frozen-lockfile && pnpm build
+
+      - name: Deploy website to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy frontend/dist --project-name=${{ vars.PAGES_PROJECT }} --branch=main --commit-hash=${{ github.sha }}
+
+      - name: Smoke test
+        run: sh scripts/smoke_test.sh "${{ vars.API_URL }}" "${{ vars.SITE_URL }}" "${{ github.sha }}"

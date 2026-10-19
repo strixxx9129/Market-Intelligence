@@ -1,0 +1,12 @@
+# Caddy obtains and renews the TLS certificate for {$DOMAIN} automatically and redirects
+# plain HTTP to HTTPS. Security headers come from the API itself (api/security.py).
+{$DOMAIN} {
+	encode zstd gzip
+	# Overwrite (never append) the client IP the API trusts: clients can't forge it.
+	reverse_proxy api:8000 {
+		header_up X-Real-IP {remote_host}
+	}
+	# Metrics stay internal.
+	@metrics path /metrics*
+	respond @metrics 404
+}

@@ -1,0 +1,3 @@
+# Cloudflare Pages: single-page app. Every unknown path serves index.html and React Router
+# renders the route (a deep link like /models/12 must not 404 on reload).
+/*    /index.html   200

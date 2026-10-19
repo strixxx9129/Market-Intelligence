@@ -278,6 +278,11 @@
       },
       "AssetList": {
         "properties": {
+          "attribution": {
+            "default": "Price data: Bitstamp BTC/USD via Kaggle dataset mczielinski/bitcoin-historical-data, licensed CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Daily candles derived by MarketLens are shared under the same licence.",
+            "title": "Attribution",
+            "type": "string"
+          },
           "data": {
             "items": {
               "$ref": "#/components/schemas/AssetOut"
@@ -994,13 +999,27 @@
       },
       "HealthResponse": {
         "properties": {
+          "git_sha": {
+            "description": "Deployed commit; the post-deploy smoke test checks it",
+            "title": "Git Sha",
+            "type": "string"
+          },
           "status": {
             "const": "ok",
             "default": "ok",
             "title": "Status",
             "type": "string"
+          },
+          "version": {
+            "description": "Package version",
+            "title": "Version",
+            "type": "string"
           }
         },
+        "required": [
+          "version",
+          "git_sha"
+        ],
         "title": "HealthResponse",
         "type": "object"
       },
@@ -1430,6 +1449,11 @@
       },
       "PricePage": {
         "properties": {
+          "attribution": {
+            "default": "Price data: Bitstamp BTC/USD via Kaggle dataset mczielinski/bitcoin-historical-data, licensed CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Daily candles derived by MarketLens are shared under the same licence.",
+            "title": "Attribution",
+            "type": "string"
+          },
           "data": {
             "items": {
               "$ref": "#/components/schemas/Candle"

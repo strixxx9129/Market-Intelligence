@@ -12,6 +12,7 @@ Auth: ~/.kaggle/kaggle.json, ~/.kaggle/access_token or KAGGLE_API_TOKEN.
 
 import hashlib
 import json
+import os
 import tempfile
 import zipfile
 from dataclasses import dataclass, field
@@ -107,3 +108,12 @@ def download_dataset(dataset: str, raw_dir: Path, force: bool = False) -> Downlo
         changed=changed,
         downloaded=zip_path.stat().st_mtime != mtime_before,
     )
+
+
+def kaggle_credentials_present() -> bool:
+    """True if any auth method the Kaggle client accepts is configured (env or ~/.kaggle)."""
+    env = os.environ
+    if env.get("KAGGLE_API_TOKEN") or (env.get("KAGGLE_USERNAME") and env.get("KAGGLE_KEY")):
+        return True
+    home = Path(env.get("KAGGLE_CONFIG_DIR", Path.home() / ".kaggle"))
+    return (home / "kaggle.json").exists() or (home / "access_token").exists()

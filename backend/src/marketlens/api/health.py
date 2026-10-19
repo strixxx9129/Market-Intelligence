@@ -15,6 +15,7 @@ from redis.asyncio import Redis
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from marketlens import __version__
 from marketlens.core.config import get_settings
 from marketlens.core.logging import get_logger
 from marketlens.schemas.health import CheckStatus, HealthResponse, ReadinessResponse
@@ -51,7 +52,7 @@ async def _run_check(name: str, check: Check, timeout_s: float) -> CheckStatus:
 
 @router.get("/healthz", response_model=HealthResponse)
 async def healthz() -> HealthResponse:
-    return HealthResponse()
+    return HealthResponse(version=__version__, git_sha=get_settings().git_sha)
 
 
 @router.get(

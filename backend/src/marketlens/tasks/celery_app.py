@@ -21,9 +21,16 @@ from kombu import Queue
 from marketlens.core.config import get_settings
 from marketlens.core.logging import configure_logging
 from marketlens.core.observability import init_sentry
+from marketlens.ingestion.kaggle_download import kaggle_credentials_present
 
-settings = get_settings()
+settings = get_settings()  # deployed: raises on unsafe/missing config (core/config.py)
 configure_logging(settings.log_level, json=settings.log_json)
+if settings.is_deployed and settings.kaggle_refresh and not kaggle_credentials_present():
+    # Fail at boot, not at 00:15 when the daily download first needs them.
+    raise RuntimeError(
+        "KAGGLE_REFRESH=true but no Kaggle credentials: set KAGGLE_API_TOKEN "
+        "(or KAGGLE_USERNAME + KAGGLE_KEY) as a secret"
+    )
 init_sentry("worker")
 
 QUEUES = ("ingest", "features", "train", "predict", "monitoring")

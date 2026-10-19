@@ -1,0 +1,110 @@
+# Continuous delivery: every merge to main → tests → images → staging → (approval) → production.
+#
+#   ci ──► images (GHCR, tagged with the commit SHA) ──► staging ──► production
+#                                                          │            │
+#                                     migrations as release step   needs a reviewer
+#
+# Images are tagged with the commit SHA, never deployed as `latest`: staging and production
+# run the exact same bytes, and a rollback is "deploy the previous SHA".
+name: CD
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Never two deploys at once (a second merge waits instead of racing the first).
+concurrency:
+  group: cd-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  images:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write  # push to ghcr.io
+    outputs:
+      backend: ${{ steps.refs.outputs.backend }}
+      mlflow: ${{ steps.refs.outputs.mlflow }}
+      backup: ${{ steps.refs.outputs.backup }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image references
+        id: refs
+        run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          for name in backend mlflow backup; do
+            echo "$name=ghcr.io/$owner/marketlens-$name:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          done
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Backend (API, workers, beat, release step)
+        uses: docker/build-push-action@v6
+        with:
+          context: backend
+          target: prod
+          push: true
+          tags: ${{ steps.refs.outputs.backend }}
+          provenance: mode=max  # signed build provenance: which commit and workflow built it
+          sbom: true  # software bill of materials: what's inside, for vulnerability scans
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
+
+      - name: MLflow
+        uses: docker/build-push-action@v6
+        with:
+          context: infra/mlflow
+          push: true
+          tags: ${{ steps.refs.outputs.mlflow }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Backup runner
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: infra/backup/Dockerfile
+          push: true
+          tags: ${{ steps.refs.outputs.backup }}
+          provenance: mode=max
+          sbom: true
+
+  # Deploys run only once the platforms are set up (docs/runbooks/first-deploy.md) and the
+  # repository variable DEPLOY_ENABLED=true is set; until then CD stops after the images.
+  staging:
+    needs: images
+    if: vars.DEPLOY_ENABLED == 'true'
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: staging
+      backend_image: ${{ needs.images.outputs.backend }}
+      mlflow_image: ${{ needs.images.outputs.mlflow }}
+      backup_image: ${{ needs.images.outputs.backup }}
+    secrets: inherit
+
+  production:
+    needs: [images, staging]
+    if: vars.DEPLOY_ENABLED == 'true'
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: production
+      backend_image: ${{ needs.images.outputs.backend }}
+      mlflow_image: ${{ needs.images.outputs.mlflow }}
+      backup_image: ${{ needs.images.outputs.backup }}
+    secrets: inherit

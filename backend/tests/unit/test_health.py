@@ -23,7 +23,8 @@ async def test_healthz_returns_ok_without_dependencies(client: AsyncClient, path
     response = await client.get(path)
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok" and body["version"] and "git_sha" in body
 
 
 async def test_readyz_ok_when_all_checks_pass(app: FastAPI, client: AsyncClient) -> None:

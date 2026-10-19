@@ -23,6 +23,7 @@ from marketlens.api.middleware import (
     RequestIdMiddleware,
 )
 from marketlens.api.ratelimit import limiter
+from marketlens.api.security import ClientIPMiddleware, SecurityHeadersMiddleware
 from marketlens.api.v1.router import api_router
 from marketlens.core.config import Settings, get_settings
 from marketlens.core.logging import configure_logging, get_logger
@@ -30,16 +31,11 @@ from marketlens.core.observability import PrometheusMiddleware, init_sentry, met
 from marketlens.db.session import create_engine, create_sessionmaker
 
 logger = get_logger(__name__)
-DEFAULT_SECRET_PREFIX = "dev-only"
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level, json=settings.log_json)
-    if settings.environment == "prod" and (
-        settings.jwt_secret.startswith(DEFAULT_SECRET_PREFIX) or len(settings.jwt_secret) < 32
-    ):
-        raise RuntimeError("refusing to start: set a strong JWT_SECRET for production")
     init_sentry("api")
 
     @asynccontextmanager
@@ -65,12 +61,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             'errors use `{"error": {code, message, details, request_id}}`.'
         ),
         lifespan=lifespan,
+        docs_url="/docs" if settings.expose_docs else None,
+        redoc_url="/redoc" if settings.expose_docs else None,
+        openapi_url="/openapi.json" if settings.expose_docs else None,
     )
     app.state.limiter = limiter
     install_error_handlers(app)
 
     # Middleware runs outermost-first in REVERSE order of registration:
-    # RequestId → CORS → Identity → RateLimitHeaders → routes (limits: router dependency).
+    # Prometheus → ClientIP → SecurityHeaders → RequestId → CORS → Identity
+    # → RateLimitHeaders → routes (limits: router dependency).
     app.add_middleware(RateLimitHeadersMiddleware)
     app.add_middleware(IdentityMiddleware)
     app.add_middleware(
@@ -96,16 +96,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ],
     )
     app.add_middleware(RequestIdMiddleware)
+    app.add_middleware(
+        SecurityHeadersMiddleware,
+        hsts_max_age_s=settings.hsts_max_age_s if settings.is_deployed else 0,
+    )
+    # Real client IP before anything reads it (rate limits, logs). See api/security.py.
+    app.add_middleware(ClientIPMiddleware, header=settings.trusted_client_ip_header)
     app.add_middleware(PrometheusMiddleware)  # outermost: times the whole request
 
     # Probes at the root (where orchestrators expect them) and versioned under /api/v1.
     app.include_router(health.router)
     app.include_router(api_router, prefix="/api/v1")
 
-    @app.get("/metrics", include_in_schema=False)
-    async def metrics() -> Response:
-        """Prometheus scrape endpoint (internal: don't expose through a public proxy)."""
-        return metrics_response()
+    if not settings.is_deployed:
+        # Local compose Prometheus scrapes this. Deployed, metrics are served by Gunicorn on
+        # the private METRICS_PORT instead (gunicorn.conf.py), never on the public port.
+        @app.get("/metrics", include_in_schema=False)
+        async def metrics() -> Response:
+            return metrics_response()
 
     for route in (health.healthz, health.readyz):
         limiter.exempt(route)  # type: ignore[no-untyped-call]  # probes are never throttled

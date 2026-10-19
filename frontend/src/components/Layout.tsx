@@ -124,6 +124,27 @@ export function Layout() {
             recommendation to buy or sell anything.
           </p>
           <p>All times are UTC. Data: daily candles; forecasts are for the next daily close.</p>
+          <p>
+            Price data: Bitstamp BTC/USD via the Kaggle dataset{' '}
+            <a
+              className="link"
+              href="https://www.kaggle.com/datasets/mczielinski/bitcoin-historical-data"
+              target="_blank"
+              rel="noreferrer"
+            >
+              mczielinski/bitcoin-historical-data
+            </a>
+            , licensed{' '}
+            <a
+              className="link"
+              href="https://creativecommons.org/licenses/by-sa/4.0/"
+              target="_blank"
+              rel="noreferrer"
+            >
+              CC BY-SA 4.0
+            </a>
+            . Derived daily candles are shared under the same licence.
+          </p>
         </div>
       </footer>
     </div>

@@ -9,15 +9,7 @@
     />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>MarketLens</title>
-    <script>
-      // Apply the theme before first paint (no light flash in dark mode).
-      try {
-        const t = localStorage.getItem('theme');
-        const dark =
-          t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches);
-        document.documentElement.classList.toggle('dark', dark);
-      } catch {}
-    </script>
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

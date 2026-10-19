@@ -616,6 +616,11 @@ export interface components {
     };
     /** AssetList */
     AssetList: {
+      /**
+       * Attribution
+       * @default Price data: Bitstamp BTC/USD via Kaggle dataset mczielinski/bitcoin-historical-data, licensed CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Daily candles derived by MarketLens are shared under the same licence.
+       */
+      attribution: string;
       /** Data */
       data: components['schemas']['AssetOut'][];
     };
@@ -893,11 +898,21 @@ export interface components {
     /** HealthResponse */
     HealthResponse: {
       /**
+       * Git Sha
+       * @description Deployed commit; the post-deploy smoke test checks it
+       */
+      git_sha: string;
+      /**
        * Status
        * @default ok
        * @constant
        */
       status: 'ok';
+      /**
+       * Version
+       * @description Package version
+       */
+      version: string;
     };
     /** JobRun */
     JobRun: {
@@ -1064,6 +1079,11 @@ export interface components {
     };
     /** PricePage */
     PricePage: {
+      /**
+       * Attribution
+       * @default Price data: Bitstamp BTC/USD via Kaggle dataset mczielinski/bitcoin-historical-data, licensed CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). Daily candles derived by MarketLens are shared under the same licence.
+       */
+      attribution: string;
       /** Data */
       data: components['schemas']['Candle'][];
       /** Interval */

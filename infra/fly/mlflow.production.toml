@@ -1,0 +1,35 @@
+# MLflow tracking server on Fly.io: PRODUCTION. PRIVATE: no public IP is ever allocated;
+# workers reach it at http://marketlens-mlflow.flycast over Fly's private network
+# (`fly ips allocate-v6 --private -a marketlens-mlflow`). MLflow has no auth of its own, so
+# being unreachable from the internet IS the access control.
+# Secrets: MLFLOW_BACKEND_STORE_URI (postgresql://.../mlflow), AWS_ACCESS_KEY_ID,
+# AWS_SECRET_ACCESS_KEY, MLFLOW_S3_ENDPOINT_URL (Cloudflare R2).
+
+app = "marketlens-mlflow"
+primary_region = "sin"
+
+[env]
+  MLFLOW_ARTIFACTS_DESTINATION = "s3://marketlens-prod-mlflow"
+  AWS_DEFAULT_REGION = "auto"
+  MLFLOW_SERVER_ALLOWED_HOSTS = "marketlens-mlflow.flycast,marketlens-mlflow.internal"
+
+[processes]
+  app = "mlflow server --host 0.0.0.0 --port 5000 --serve-artifacts --workers 2"
+
+[http_service]
+  internal_port = 5000
+  force_https = false  # flycast is private plain HTTP inside the WireGuard mesh
+  auto_stop_machines = "stop"  # only needed during weekly training; wakes on request
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "30s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"

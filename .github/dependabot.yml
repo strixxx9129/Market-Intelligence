@@ -1,0 +1,33 @@
+# Dependabot opens PRs for outdated or vulnerable dependencies; CI tests every one.
+# Minor/patch updates are grouped per ecosystem (one PR a week, not twenty); majors stay
+# separate because they need reading the changelog.
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /backend
+    schedule: { interval: weekly, day: monday }
+    groups:
+      python-minor:
+        update-types: [minor, patch]
+    labels: [dependencies, backend]
+
+  - package-ecosystem: npm  # pnpm lockfiles are supported by the npm ecosystem
+    directory: /frontend
+    schedule: { interval: weekly, day: monday }
+    groups:
+      frontend-minor:
+        update-types: [minor, patch]
+    labels: [dependencies, frontend]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    groups:
+      actions:
+        patterns: ["*"]
+    labels: [dependencies, ci]
+
+  - package-ecosystem: docker
+    directories: [/backend, /infra/mlflow, /infra/backup]
+    schedule: { interval: weekly, day: monday }
+    labels: [dependencies, docker]

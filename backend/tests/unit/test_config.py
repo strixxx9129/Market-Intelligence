@@ -27,6 +27,8 @@ def test_cors_origins_parsed_from_comma_separated_env(monkeypatch: pytest.Monkey
 
 
 def test_env_overrides_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Don't inherit the runner's ENVIRONMENT (CI sets "test"): assert the code default.
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
     monkeypatch.setenv("REDIS_URL", "redis://cache:6379/1")
 
     settings = Settings(_env_file=None)  # type: ignore[call-arg]

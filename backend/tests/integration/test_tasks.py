@@ -225,10 +225,20 @@ def test_gives_up_after_max_retries(task_env: None, monkeypatch: pytest.MonkeyPa
     assert statuses == ["retrying"] * 5 + ["failed"]  # 1 try + 5 retries, then stop
 
 
-def test_permanent_errors_fail_immediately(task_env: None) -> None:
+class FixtureConnector(KaggleBtcConnector):
+    """The real connector reading the committed sample CSV (never the downloaded dataset)."""
+
+    name: ClassVar[str] = "fixture_btc"
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(FIXTURE_PATH)
+
+
+def test_permanent_errors_fail_immediately(task_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(connector_base._REGISTRY, FixtureConnector.name, FixtureConnector)
     # No asset seeded → the pipeline raises a LookupError: a bug/config issue, not transient.
     with pytest.raises(LookupError):
-        jobs.ingest.apply(kwargs={"source": "kaggle_btc"})
+        jobs.ingest.apply(kwargs={"source": "fixture_btc"})
     runs = _task_runs("ingest")
     assert [r.status.value for r in runs] == ["failed"] and runs[0].attempt == 1
 

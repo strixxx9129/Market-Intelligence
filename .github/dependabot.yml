@@ -9,6 +9,11 @@ updates:
     groups:
       python-minor:
         update-types: [minor, patch]
+    ignore:
+      # The MLflow client must match the server image's minor version (infra/mlflow): bump
+      # both together by hand, never one side alone.
+      - dependency-name: mlflow-skinny
+        update-types: [version-update:semver-minor, version-update:semver-major]
     labels: [dependencies, backend]
 
   - package-ecosystem: npm  # pnpm lockfiles are supported by the npm ecosystem
@@ -30,4 +35,11 @@ updates:
   - package-ecosystem: docker
     directories: [/backend, /infra/mlflow, /infra/backup]
     schedule: { interval: weekly, day: monday }
+    ignore:
+      # Python and Postgres versions are deliberate upgrades across the whole stack (images,
+      # CI, requires-python, pg_dump >= server), not per-Dockerfile bumps. Patches still flow.
+      - dependency-name: python
+        update-types: [version-update:semver-minor, version-update:semver-major]
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
     labels: [dependencies, docker]

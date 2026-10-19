@@ -15,6 +15,8 @@ async def test_assets(client: AsyncClient, world: World) -> None:
     assert r.status_code == 200
     (btc,) = r.json()["data"]
     assert btc["symbol"] == "BTC-USD" and btc["latest_ts"].startswith("2024-04-29")
+    expected = (btc["latest_close"] / btc["prev_close"] - 1) * 100
+    assert btc["change_1d_pct"] == pytest.approx(expected, abs=1e-3)
 
 
 async def test_cursor_pagination_walks_every_candle_once(client: AsyncClient, world: World) -> None:
@@ -115,8 +117,21 @@ async def test_models_card_backtest_status(client: AsyncClient, world: World) ->
     assert card["backtests"][0]["id"] == str(world.backtest_id)
     assert (await client.get("/api/v1/models/99999")).status_code == 404
 
+    entries = {e["name"]: e for e in board["entries"]}
+    assert len(entries["btc-usd_1d_logistic"]["per_fold"]) == len(
+        card["metrics"]["per_fold"]["log_loss"]
+    )
+
     bt = await client.get(f"/api/v1/backtests/{world.backtest_id}")
     assert bt.status_code == 200 and bt.json()["threshold"]["chosen"] == 0.52
+    curve = bt.json()["equity_curve"]
+    assert curve["strategy_net"] == [1.0, 1.02] and len(curve["ts"]) == 2
+
+    listed = (await client.get("/api/v1/backtests")).json()
+    row = listed["data"][0]
+    assert row["id"] == str(world.backtest_id) and row["cost_bps"] == 15
+    assert row["strategy_net_total_return"] == 0.2 and row["beats_buy_and_hold_sharpe"] is False
+    assert "not financial advice" in listed["disclaimer"].lower()
     assert (await client.get("/api/v1/backtests/not-a-uuid")).status_code == 404
 
     status = (await client.get("/api/v1/status")).json()

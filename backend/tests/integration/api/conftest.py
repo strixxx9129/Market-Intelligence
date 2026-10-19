@@ -214,13 +214,29 @@ async def world(sm: Any) -> World:
         bt = Backtest(
             model_version_id=ids["logistic"],
             baseline_model_version_id=ids["historical_up_rate"],
-            config={"fee_bps": 10},
+            config={"fee_bps": 10, "slippage_bps": 5},
             git_sha="abc",
             equity_curve_uri="s3://backtests/x.parquet",
+            equity_curve={
+                "frequency": "weekly",
+                "ts": ["2024-01-07T00:00:00+00:00", "2024-01-14T00:00:00+00:00"],
+                "strategy_gross": [1.0, 1.03],
+                "strategy_net": [1.0, 1.02],
+                "buy_and_hold": [1.0, 1.05],
+                "baseline": [1.0, 1.01],
+            },
             metrics={
-                "model": {"id": ids["logistic"]},
+                "model": {"id": ids["logistic"], "name": "btc-usd_1d_logistic", "version": 1},
                 "threshold": {"chosen": 0.52},
-                "evaluation": {"strategy_net": {"sharpe": 0.5}, "buy_and_hold": {"sharpe": 0.7}},
+                "evaluation": {
+                    "strategy_net": {
+                        "sharpe": 0.5,
+                        "total_return": 0.2,
+                        "start": "2024-01-01",
+                        "end": "2024-06-01",
+                    },
+                    "buy_and_hold": {"sharpe": 0.7, "total_return": 0.4},
+                },
                 "selection": {},
                 "yearly": {},
                 "sensitivity": {},

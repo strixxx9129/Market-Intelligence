@@ -20,6 +20,7 @@ from typing import Any
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from marketlens.backtest.curves import downsample_curve
 from marketlens.backtest.engine import (
     BacktestConfig,
     BacktestResult,
@@ -271,6 +272,7 @@ class Backtester:
                 config=json_safe(config),
                 metrics=json_safe(metrics),
                 equity_curve_uri=uri,
+                equity_curve=downsample_curve(curve),
                 git_sha=self.git_sha,
             )
         logger.info(

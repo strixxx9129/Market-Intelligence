@@ -468,12 +468,108 @@ buy-and-hold and the baseline → [`docs/backtest-report.md`](backtest-report.md
   can exhaust a 4 GB Docker VM (seen as `ENOMEM` or DNS errors, and a hung test). Stop
   grafana/prometheus/worker-train before running tests, or give Docker more memory.
 
-## Next: Phase 10: Website
-React + TypeScript + Vite + Tailwind + TanStack Query + Lightweight Charts: price chart with
-forecast overlay and disclaimer, model leaderboard/cards, backtest pages, status page, login,
-watchlists/alerts; typed API client generated from OpenAPI; frontend container in compose.
+## Phase 10: Website ✅ (2026-10-19)
+
+**Goal:** a fast, clear, mobile-friendly website a non-developer can use.
+
+### Built
+- `frontend/`:
+  - Vite 7, React 19, TypeScript strict, Tailwind 4, React Router 7, TanStack Query 5,
+    Lightweight Charts 5, pnpm 10 (pinned, lockfile).
+  - ESLint 9 + Prettier; Vitest 3 + Testing Library.
+- Typed API client:
+  - `make openapi` (`scripts/export_openapi.py`) writes `frontend/openapi.json`;
+  - `pnpm gen:api` (openapi-typescript) writes `src/api/schema.d.ts`;
+  - `openapi-fetch` client with an auth middleware (bearer token, one shared refresh on 401,
+    replay of the original request).
+- Pages, each a lazily loaded chunk:
+  - Home: asset cards with price, 1-day change and a forecast summary;
+  - Asset: candles with 1M/3M/1Y/5Y/All, daily return and volatility charts from the
+    features, forecast panel;
+  - Models: leaderboard with a verdict and per-fold bars vs the baseline;
+  - Model card: metrics, training provenance, calibration, permutation importance, promotions,
+    backtests;
+  - Backtests list and detail: equity curves before/after costs vs buy-and-hold and the
+    baseline, results table, every assumption, year by year;
+  - Status: alerts, freshness, runs; refreshes every minute;
+  - Login / Register, Account (watchlists, alert rules marked "not delivered yet", API keys
+    shown once), Contribute (guides plus GitHub issue links from `VITE_GITHUB_URL`).
+- Layout: responsive nav with a mobile menu; dark mode (system or remembered, no flash);
+  skeletons, error states with retry, empty states; up/down always as an arrow plus a word;
+  disclaimer on every forecast surface.
+- Backend additions (read-only, Postgres only):
+  - `AssetOut.prev_close` / `change_1d_pct` (LATERAL LIMIT 2);
+  - `GET /api/v1/backtests`;
+  - `LeaderboardEntry.per_fold`;
+  - `BacktestOut.equity_curve`, from migration `f3fa6aae83db` (`backtests.equity_curve`
+    JSONB, weekly downsample written by the backtester); `marketlens backfill-equity-curves
+    [--force]` filled the 10 existing backtests.
+- Compose `frontend` service (Vite dev server, `127.0.0.1:5173`, named `node_modules`
+  volume).
+- Make targets: `make web`, `web-install`, `web-gen`, `web-test`, `web-build`; `make lint`
+  and `make test` include the frontend.
+- CI: new `frontend` job (frozen install, generated-client check, lint, typecheck, tests,
+  build); the backend job checks the OpenAPI snapshot.
+- Tests:
+  - backend: 586 (new: weekly curve downsampling, 1-day change, backtest list, equity curve,
+    per-fold);
+  - frontend: 30.
+    - ForecastPanel: probability, model version, as-of time, track record vs yardsticks,
+      coin-flip wording, short track record, baseline notice, arrow plus word, no buy/sell
+      wording, and the disclaimer in 6 states.
+    - Auth: login stores tokens, bearer header, 401 → single refresh → replay (including a
+      POST body), concurrent 401s share one refresh, a rejected refresh logs out, a failed
+      login doesn't refresh, logout revokes.
+    - Page-level flows: login → account, wrong password, protected-route redirect and back,
+      session restore after reload, register.
+    - Formatters.
+- ADR 0011.
+
+### Live verification (real stack, browser)
+- Every page renders against real data.
+- Asset "All" loads 5,405 candles through 6 cursor pages.
+- Range switches and remounts produce no errors.
+- Live auth in the browser: register → account → create watchlist → reload. On reload:
+  `/me` 401, one `/auth/refresh`, `/me` 200 (with CORS preflights), and the refresh token
+  rotated.
+- At 375 px wide, light mode: no horizontal scroll; the menu collapses.
+- Build: entry chunk 119 kB gzip, charts chunk 55 kB gzip (chart pages only), pages 0.3–7 kB
+  each.
+- The backtest page shows the cost lesson: ridge strategy 8.73× before costs, 2.48× after,
+  buy-and-hold 4.25×.
+
+### Decisions
+- Generated client plus snapshot checks in CI on both sides (ADR 0011).
+- Server state only in TanStack Query; UI state local.
+- Access token in memory, refresh token in localStorage with rotation (follow-up: httpOnly
+  cookie).
+- Forecast wording: probabilities with yardsticks, "close to a coin flip" within ±5 points,
+  never instructions.
+- Weekly equity curves in Postgres for the website, daily Parquet in S3 for analysis.
+- New dependencies: openapi-fetch, plus dev helpers (jsdom, jest-dom, user-event,
+  typescript-eslint, react-hooks, react-refresh, eslint-config-prettier, globals).
+
+### Known issues / notes
+- React StrictMode surfaced a chart lifecycle bug: series were kept from a destroyed chart.
+  Fixed: the chart instance is state, and series are tied to it.
+- jsdom vs Node `AbortSignal` clash in tests (React Router navigation): the test setup drops
+  the signal from `Request`.
+- Test timeouts were raised (async 5 s, test 15 s): the Docker VM is CPU-starved while the
+  full stack runs.
+- The features chart covers 365 days (API maximum). Alert rules are stored, not evaluated.
+- The GitHub URL is a placeholder until a remote exists (`VITE_GITHUB_URL`).
+- Docker Desktop hung mid-phase (WSL backend). Frontend checks ran on host Node 24 in the
+  meantime, then all were re-run in the container.
+
+## Next: Phase 11 (to be defined)
+Candidates:
+- alert evaluation and delivery (rules are stored already);
+- stock connectors (second asset class);
+- production hardening: httpOnly refresh cookie, production build served by nginx/CDN, CSP
+  headers, deploy pipeline.
 
 ## Later
 - Alert evaluation task after `predict` + notification channel (e-mail/webhook).
+- Auth hardening: refresh token in an httpOnly SameSite cookie (+ CSRF), CSP headers.
 - Monitoring follow-ups: grouped alerts per model, metrics retention, Prometheus alert rules
   for API/worker SLOs.

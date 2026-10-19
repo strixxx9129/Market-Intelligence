@@ -14,6 +14,7 @@ import base64
 import binascii
 import math
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,21 +61,36 @@ async def _asset(session: AsyncSession, symbol: str) -> Asset:
 
 
 async def list_assets(session: AsyncSession) -> AssetList:
-    rows = await repo.list_assets(session)
-    return AssetList(
-        data=[
+    candles: dict[str, list[Any]] = {}
+    assets: dict[str, Asset] = {}
+    for r in await repo.list_assets(session):
+        assets[r.Asset.symbol] = r.Asset
+        if r.ts is not None:
+            candles.setdefault(r.Asset.symbol, []).append(r)  # newest first
+    out = []
+    for symbol, a in assets.items():
+        rows = candles.get(symbol, [])
+        latest = rows[0] if rows else None
+        prev = rows[1] if len(rows) > 1 else None
+        change = (
+            latest.close / prev.close - 1
+            if latest is not None and prev is not None and prev.close
+            else None
+        )
+        out.append(
             AssetOut(
-                symbol=r.Asset.symbol,
-                name=r.Asset.name,
-                asset_class=r.Asset.asset_class,
-                base_currency=r.Asset.base_currency,
-                quote_currency=r.Asset.quote_currency,
-                latest_ts=r.latest_ts,
-                latest_close=r.latest_close,
+                symbol=a.symbol,
+                name=a.name,
+                asset_class=a.asset_class,
+                base_currency=a.base_currency,
+                quote_currency=a.quote_currency,
+                latest_ts=latest.ts if latest else None,
+                latest_close=latest.close if latest else None,
+                prev_close=prev.close if prev else None,
+                change_1d_pct=round(change * 100, 4) if change is not None else None,
             )
-            for r in rows
-        ]
-    )
+        )
+    return AssetList(data=out)
 
 
 async def prices(

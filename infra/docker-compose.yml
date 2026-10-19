@@ -180,6 +180,32 @@ services:
       - ../backend:/app
       - beat_data:/beat
 
+  # Website (dev): Vite dev server with hot reload. node_modules lives in a named volume
+  # (Linux binaries, fast) instead of the Windows/macOS bind mount. The browser calls the API
+  # directly, so VITE_API_URL is the API's address as seen from the HOST.
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    command: ["sh", "-c", "corepack enable && pnpm install --frozen-lockfile && pnpm dev"]
+    environment:
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      VITE_GITHUB_URL: ${VITE_GITHUB_URL:-https://github.com/your-org/marketlens}
+      CHOKIDAR_USEPOLLING: "true"
+      COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+      npm_config_store_dir: /pnpm-store
+    volumes:
+      - ../frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - pnpm_store:/pnpm-store
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-5173}:5173"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:5173/"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 60s
+
   # Observability: Prometheus scrapes the API and workers; Grafana shows them next to the
   # monitoring_metrics history from PostgreSQL. Both are published on 127.0.0.1 only.
   prometheus:
@@ -280,3 +306,5 @@ volumes:
   beat_data:
   prometheus_data:
   grafana_data:
+  frontend_node_modules:
+  pnpm_store:

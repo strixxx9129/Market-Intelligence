@@ -17,17 +17,21 @@ Commands are thin: they build dependencies and call services, exactly like route
 """
 
 import asyncio
+import io
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated
 
+import pandas as pd
 import typer
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from marketlens.backtest.curves import downsample_curve
 from marketlens.backtest.report import render_backtest_report
 from marketlens.backtest.service import Backtester, BacktestRequest
 from marketlens.core.config import get_settings
 from marketlens.core.logging import configure_logging
+from marketlens.core.storage import S3ObjectStore
 from marketlens.db.seed import seed_assets
 from marketlens.db.session import create_engine, create_sessionmaker
 from marketlens.features import FEATURES
@@ -292,6 +296,26 @@ def backtest(
             )
         typer.echo(f"  equity curve: {uri}")
         typer.echo(f"  {m['disclaimer']}")
+
+    _run_with_db(work)
+
+
+@app.command("backfill-equity-curves")
+def backfill_equity_curves(
+    force: Annotated[bool, typer.Option(help="Recompute curves that already exist.")] = False,
+) -> None:
+    """Store the weekly equity curve (for the website) on backtests created before Phase 10."""
+
+    async def work(sessionmaker: async_sessionmaker[AsyncSession]) -> None:
+        store = S3ObjectStore(get_settings().backtest_bucket)
+        done = 0
+        async with sessionmaker() as session, session.begin():
+            for bt in await backtest_repo.missing_equity_curves(session, include_existing=force):
+                assert bt.equity_curve_uri is not None
+                curve = pd.read_parquet(io.BytesIO(store.get_bytes(bt.equity_curve_uri)))
+                bt.equity_curve = downsample_curve(curve)
+                done += 1
+        typer.echo(f"backfilled {done} equity curve(s)")
 
     _run_with_db(work)
 

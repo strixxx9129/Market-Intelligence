@@ -24,6 +24,7 @@ Then open:
 
 | Service | URL |
 |---|---|
+| **Website** | http://localhost:5173 |
 | API docs (Swagger) | http://localhost:8000/docs |
 | Liveness / readiness | http://localhost:8000/healthz · http://localhost:8000/readyz |
 | MLflow | http://localhost:5000 |
@@ -49,6 +50,12 @@ to 60/min per IP; register (`POST /api/v1/auth/register`), log in, then create a
 `/api/v1/me/api-keys` and send it as `X-API-Key` (1000/min). First admin:
 `docker compose -f infra/docker-compose.yml --env-file .env run --rm api marketlens admin create-user --email you@example.org --role admin`.
 Load test: `make loadtest` (Locust, headless) or `make loadtest-ui` (http://localhost:8089).
+
+Website (Phase 10): `make up` also starts the Vite dev server at http://localhost:5173 (`make web`
+starts just the API and the site). Pages: market overview, asset charts and forecast, model
+leaderboard and model cards, backtests, system status, account. The TypeScript API client is
+generated from the backend: after an API change run `make openapi` then `make web-gen` (CI checks
+both). `make web-test`, `make web-build`; details in [frontend/README.md](frontend/README.md).
 
 Monitoring (Phase 9): Beat checks freshness hourly, input/prediction drift (PSI + KS vs the
 model's training data) at 00:45 and live log loss/Brier/accuracy at 01:15. Results go to

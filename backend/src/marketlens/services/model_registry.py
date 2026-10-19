@@ -8,7 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from marketlens.core.errors import ServiceError
 from marketlens.repositories import market_read_repo as repo
 from marketlens.schemas.models import (
+    BacktestList,
     BacktestOut,
+    BacktestSummary,
+    EquityCurve,
     Leaderboard,
     LeaderboardEntry,
     LeaderboardList,
@@ -39,6 +42,7 @@ async def leaderboard(session: AsyncSession) -> LeaderboardList:
                     primary_metric=primary,
                     score=MetricStat(**e["summary"][primary]),
                     vs_best_baseline=e["vs_best_baseline"].get(primary),
+                    per_fold=(e.get("per_fold") or {}).get(primary),
                 )
             )
         boards.append(
@@ -119,6 +123,31 @@ async def model_card(session: AsyncSession, mv_id: int) -> ModelCard:
     )
 
 
+async def list_backtests(session: AsyncSession, limit: int = 50) -> BacktestList:
+    out = []
+    for bt in await repo.list_backtests(session, limit):
+        m, c = bt.metrics, bt.config
+        net, bh = m["evaluation"]["strategy_net"], m["evaluation"]["buy_and_hold"]
+        out.append(
+            BacktestSummary(
+                id=str(bt.id),
+                model_version_id=bt.model_version_id,
+                model_name=m["model"]["name"],
+                model_version=m["model"]["version"],
+                created_at=bt.created_at,
+                evaluation_start=net.get("start"),
+                evaluation_end=net.get("end"),
+                cost_bps=float(c.get("fee_bps", 0)) + float(c.get("slippage_bps", 0)),
+                strategy_net_total_return=net.get("total_return"),
+                buy_and_hold_total_return=bh.get("total_return"),
+                strategy_net_sharpe=net.get("sharpe"),
+                buy_and_hold_sharpe=bh.get("sharpe"),
+                beats_buy_and_hold_sharpe=bool(m["verdict"]["beats_buy_and_hold_sharpe"]),
+            )
+        )
+    return BacktestList(data=out)
+
+
 async def backtest(session: AsyncSession, backtest_id: str) -> BacktestOut:
     try:
         bid = uuid.UUID(backtest_id)
@@ -141,5 +170,6 @@ async def backtest(session: AsyncSession, backtest_id: str) -> BacktestOut:
         sensitivity=m["sensitivity"],
         verdict=m["verdict"],
         equity_curve_uri=bt.equity_curve_uri,
+        equity_curve=EquityCurve(**bt.equity_curve) if bt.equity_curve else None,
         disclaimer=m["disclaimer"],
     )

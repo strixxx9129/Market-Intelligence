@@ -68,3 +68,12 @@ async def latest_backtests(session: AsyncSession) -> list[Backtest]:
             seen.add(bt.model_version_id)
             latest.append(bt)
     return latest
+
+
+async def missing_equity_curves(
+    session: AsyncSession, include_existing: bool = False
+) -> list[Backtest]:
+    q = select(Backtest).where(Backtest.equity_curve_uri.is_not(None))
+    if not include_existing:
+        q = q.where(Backtest.equity_curve.is_(None))
+    return list((await session.scalars(q)).all())

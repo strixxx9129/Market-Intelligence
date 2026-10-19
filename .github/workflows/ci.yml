@@ -69,8 +69,47 @@ jobs:
       - name: Feature catalog is up to date
         run: uv run python ../scripts/gen_feature_catalog.py --check
 
+      - name: OpenAPI snapshot (frontend/openapi.json) is up to date
+        run: uv run python ../scripts/export_openapi.py --check
+
       - name: Mypy (strict)
         run: uv run mypy
 
       - name: Pytest
         run: uv run pytest
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4  # version from package.json "packageManager"
+        with:
+          package_json_file: frontend/package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install (locked)
+        run: pnpm install --frozen-lockfile
+
+      - name: Generated API client matches openapi.json
+        run: pnpm gen:api:check
+
+      - name: ESLint + Prettier
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build

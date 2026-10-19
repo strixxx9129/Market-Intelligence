@@ -30,6 +30,8 @@ class Backtest(Base):
     config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     metrics: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     equity_curve_uri: Mapped[str | None] = mapped_column(String(512))
+    # Weekly downsample for the website (backtest/curves.py); the API can't read S3 (rule 5).
+    equity_curve: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     git_sha: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

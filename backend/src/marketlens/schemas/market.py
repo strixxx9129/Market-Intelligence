@@ -16,6 +16,10 @@ class AssetOut(BaseModel):
         None, description="Open time (UTC) of the newest daily candle"
     )
     latest_close: float | None = None
+    prev_close: float | None = Field(None, description="Close of the previous daily candle")
+    change_1d_pct: float | None = Field(
+        None, description="Close-to-close change vs the previous daily candle, in percent"
+    )
 
 
 class AssetList(BaseModel):

@@ -21,6 +21,9 @@ class LeaderboardEntry(BaseModel):
     primary_metric: str
     score: MetricStat
     vs_best_baseline: dict[str, Any] | None = None
+    per_fold: list[float] | None = Field(
+        None, description="Primary-metric score on each walk-forward test fold, in time order"
+    )
 
 
 class Leaderboard(BaseModel):
@@ -67,6 +70,38 @@ class ModelCard(BaseModel):
     disclaimer: str = DISCLAIMER
 
 
+class EquityCurve(BaseModel):
+    """Weekly growth of 1 unit invested (hypothetical), evaluation period only."""
+
+    frequency: str
+    ts: list[datetime]
+    strategy_gross: list[float | None] = Field(description="Before costs")
+    strategy_net: list[float | None] = Field(description="After fees and slippage")
+    buy_and_hold: list[float | None]
+    baseline: list[float | None] = Field(description="Same rules driven by the baseline model")
+
+
+class BacktestSummary(BaseModel):
+    id: str
+    model_version_id: int
+    model_name: str
+    model_version: int
+    created_at: datetime
+    evaluation_start: str | None
+    evaluation_end: str | None
+    cost_bps: float
+    strategy_net_total_return: float | None
+    buy_and_hold_total_return: float | None
+    strategy_net_sharpe: float | None
+    buy_and_hold_sharpe: float | None
+    beats_buy_and_hold_sharpe: bool
+
+
+class BacktestList(BaseModel):
+    data: list[BacktestSummary]
+    disclaimer: str = DISCLAIMER
+
+
 class BacktestOut(BaseModel):
     id: str
     model_version_id: int
@@ -80,4 +115,5 @@ class BacktestOut(BaseModel):
     sensitivity: dict[str, Any]
     verdict: dict[str, Any]
     equity_curve_uri: str | None
+    equity_curve: EquityCurve | None = None
     disclaimer: str

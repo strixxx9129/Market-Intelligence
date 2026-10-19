@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Float, and_, cast, func, select
+from sqlalchemy import Float, cast, func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from marketlens.models import (
@@ -23,28 +23,21 @@ from marketlens.models import (
 
 
 async def list_assets(session: AsyncSession) -> list[Any]:
-    latest = (
-        select(
-            MarketPrice.asset_id,
-            func.max(MarketPrice.ts).label("latest_ts"),
-        )
-        .where(MarketPrice.interval == "1d")
-        .group_by(MarketPrice.asset_id)
-        .subquery()
+    """Each active asset with its two newest daily candles (LATERAL ... LIMIT 2 uses the
+    UNIQUE(asset_id, interval, ts) index). One row per candle; assets without data get one
+    row with NULL ts/close."""
+    last_two = (
+        select(MarketPrice.ts, cast(MarketPrice.close, Float).label("close"))
+        .where(MarketPrice.asset_id == Asset.id, MarketPrice.interval == "1d")
+        .order_by(MarketPrice.ts.desc())
+        .limit(2)
+        .lateral()
     )
     q = (
-        select(Asset, latest.c.latest_ts, cast(MarketPrice.close, Float).label("latest_close"))
-        .outerjoin(latest, latest.c.asset_id == Asset.id)
-        .outerjoin(
-            MarketPrice,
-            and_(
-                MarketPrice.asset_id == Asset.id,
-                MarketPrice.ts == latest.c.latest_ts,
-                MarketPrice.interval == "1d",
-            ),
-        )
+        select(Asset, last_two.c.ts, last_two.c.close)
+        .outerjoin(last_two, true())
         .where(Asset.is_active.is_(True))
-        .order_by(Asset.symbol)
+        .order_by(Asset.symbol, last_two.c.ts.desc())
     )
     return list((await session.execute(q)).all())
 
@@ -192,6 +185,11 @@ async def backtests_for(session: AsyncSession, mv_id: int) -> list[Backtest]:
         .where(Backtest.model_version_id == mv_id)
         .order_by(Backtest.created_at.desc())
     )
+    return list((await session.scalars(q)).all())
+
+
+async def list_backtests(session: AsyncSession, limit: int) -> list[Backtest]:
+    q = select(Backtest).order_by(Backtest.created_at.desc()).limit(limit)
     return list((await session.scalars(q)).all())
 
 

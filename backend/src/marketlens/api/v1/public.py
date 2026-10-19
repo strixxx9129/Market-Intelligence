@@ -12,7 +12,7 @@ from fastapi.responses import Response
 from marketlens.api.deps import CacheDep, Session, cached_response
 from marketlens.schemas.common import ERROR_RESPONSES
 from marketlens.schemas.market import AssetList, FeaturesOut, ForecastOut, PricePage
-from marketlens.schemas.models import BacktestOut, LeaderboardList, ModelCard
+from marketlens.schemas.models import BacktestList, BacktestOut, LeaderboardList, ModelCard
 from marketlens.schemas.status import StatusOut
 from marketlens.services import market, model_registry, status
 
@@ -94,6 +94,14 @@ async def model_card(
     """Model card: parameters, data lineage, out-of-sample metrics, promotion history."""
     return await cached_response(
         request, cache, "models", lambda: model_registry.model_card(session, model_version_id)
+    )
+
+
+@router.get("/backtests", response_model=BacktestList, tags=["models"])
+async def backtests(request: Request, session: Session, cache: CacheDep) -> Response:
+    """Stored backtests, newest first (hypothetical, after costs, vs buy-and-hold)."""
+    return await cached_response(
+        request, cache, "backtests", lambda: model_registry.list_backtests(session)
     )
 
 

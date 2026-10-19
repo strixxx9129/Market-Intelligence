@@ -4,6 +4,7 @@ System alerts are computed on read from pipeline state; they are not user alerts
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,9 +20,12 @@ async def platform_status(session: AsyncSession, now: datetime | None = None) ->
     alerts: list[SystemAlert] = []
 
     freshness = []
-    for row in await repo.list_assets(session):
+    newest: dict[int, Any] = {}
+    for row in await repo.list_assets(session):  # newest candle first per asset
+        newest.setdefault(row.Asset.id, row)
+    for row in newest.values():
         asset = row.Asset
-        latest = row.latest_ts
+        latest = row.ts
         stale = (now - latest).days if latest else None
         freshness.append(
             Freshness(

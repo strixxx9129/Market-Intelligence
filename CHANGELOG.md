@@ -20,4 +20,8 @@ MarketLens is educational software, not financial advice.
 - Add website with generated API client, charts, honest forecast panel and auth ([e4347f2](https://github.com/strixxx9129/Market-Intelligence/commit/e4347f2b810180272286c3be18f1b293b30cec5a))
 - Add production deployment with CD, fail-fast config, security hardening and tested backups ([87f0b35](https://github.com/strixxx9129/Market-Intelligence/commit/87f0b35cea19a8e1e6fef1b8bced7353ab121e16))
 
+### Bug fixes
+
+- **ci:** Make tests independent of locally downloaded data ([3a7e309](https://github.com/strixxx9129/Market-Intelligence/commit/3a7e309a49b0decca86486086a4927bf692085b1))
+
 

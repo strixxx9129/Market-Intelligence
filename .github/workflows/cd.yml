@@ -36,7 +36,7 @@ jobs:
       mlflow: ${{ steps.refs.outputs.mlflow }}
       backup: ${{ steps.refs.outputs.backup }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Image references
         id: refs
@@ -46,16 +46,16 @@ jobs:
             echo "$name=ghcr.io/$owner/marketlens-$name:${{ github.sha }}" >> "$GITHUB_OUTPUT"
           done
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Backend (API, workers, beat, release step)
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: backend
           target: prod
@@ -67,7 +67,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=backend
 
       - name: MLflow
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: infra/mlflow
           push: true
@@ -76,7 +76,7 @@ jobs:
           sbom: true
 
       - name: Backup runner
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: infra/backup/Dockerfile
